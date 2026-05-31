@@ -31,6 +31,10 @@ dist/
 *.log
 temp/
 
+# QVAC SDK 外部依赖
+qvac-sdk/
+qvac-rag-*.zip
+
 # OS
 Thumbs.db
 .DS_Store
