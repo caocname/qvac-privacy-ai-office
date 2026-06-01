@@ -40,6 +40,12 @@ temp/
 qvac-sdk/
 qvac-rag-*.zip
 
+# Bridge 运行时二进制
+bridge/bare.exe
+
+# 根目录误放的 lockfile
+/package-lock.json
+
 # OS
 Thumbs.db
 .DS_Store

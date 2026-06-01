@@ -1,31 +1,117 @@
 /**
- * QVAC Bridge Service — 连接 Python 后端与 QVAC SDK 的桥接服务。
- *
- * 职责:
- * - 加载并管理 QVAC LLM / Embedding / ASR / TTS 模型生命周期
- * - 提供本地 HTTP API 供 Python FastAPI 后端调用
- * - 流式推理响应通过 Server-Sent Events (SSE) 推送
+ * QVAC Bridge Service — Node.js HTTP 服务器，通过 stdin/stdout JSON 协议
+ * 与 Bare 运行时中的推理 Worker 通信。
  *
  * 仅绑定 127.0.0.1，遵守 R-01 离线合规铁律。
  */
 
+import { spawn } from "node:child_process";
 import http from "node:http";
-import { EventEmitter } from "node:events";
-import { execSync } from "node:child_process";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const BRIDGE_HOST = "127.0.0.1";
 const BRIDGE_PORT = 18889;
-const MODELS_DIR = new URL("../data/models", import.meta.url).pathname;
+const MODELS_DIR = path.join(__dirname, "..", "data", "models");
+const BARE_EXE = path.join(__dirname, "bare.exe");
+const WORKER_SCRIPT = path.join(__dirname, "qvac-worker.js");
 
-// ---- Model Registry ----
-let llmModel = null;
-let embedModel = null;
-let modelInfo = { llm_loaded: false, llm_model: "", embed_loaded: false, embed_model: "" };
+// ---- Worker Management ----
+let workerProc = null;
+let workerReady = false;
+let requestId = 0;
+const pending = new Map(); // id -> { resolve, reject, onEvent }
+let stdoutBuf = "";
 
-// ---- Event Bus ----
-const events = new EventEmitter();
+function startWorker() {
+  return new Promise((resolve, reject) => {
+    workerProc = spawn(BARE_EXE, [WORKER_SCRIPT], {
+      cwd: __dirname,
+      stdio: ["pipe", "pipe", "pipe"],
+    });
 
-// ---- Helpers ----
+    workerProc.on("error", (err) => {
+      console.error("[Bridge] Worker spawn error:", err.message);
+      reject(err);
+    });
+
+    workerProc.on("exit", (code) => {
+      console.error(`[Bridge] Worker exited with code ${code}`);
+      workerReady = false;
+      workerProc = null;
+    });
+
+    workerProc.stderr.on("data", (chunk) => {
+      process.stderr.write(`[Worker] ${chunk}`);
+    });
+
+    workerProc.stdout.on("data", (chunk) => {
+      stdoutBuf += chunk.toString();
+      const lines = stdoutBuf.split("\n");
+      stdoutBuf = lines.pop() || "";
+
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed) continue;
+        try {
+          const msg = JSON.parse(trimmed);
+          handleWorkerMessage(msg);
+        } catch {}
+      }
+    });
+
+    // Worker is ready when it writes to stderr
+    const checkReady = (chunk) => {
+      if (chunk.toString().includes("started")) {
+        workerReady = true;
+        resolve();
+      }
+    };
+    workerProc.stderr.on("data", checkReady);
+
+    // Timeout after 10s
+    setTimeout(() => {
+      if (!workerReady) {
+        workerReady = true; // Assume ready anyway
+        resolve();
+      }
+    }, 10000);
+  });
+}
+
+function handleWorkerMessage(msg) {
+  if (msg.id && msg.event) {
+    // Streaming event
+    const req = pending.get(msg.id);
+    if (req && req.onEvent) {
+      req.onEvent(msg.event, msg.data);
+    }
+    return;
+  }
+
+  if (msg.id) {
+    const req = pending.get(msg.id);
+    if (!req) return;
+    pending.delete(msg.id);
+
+    if (msg.error) {
+      req.reject(new Error(msg.error));
+    } else {
+      req.resolve(msg.result);
+    }
+  }
+}
+
+function sendToWorker(method, params, onEvent) {
+  return new Promise((resolve, reject) => {
+    const id = String(++requestId);
+    pending.set(id, { resolve, reject, onEvent: onEvent || null });
+    workerProc.stdin.write(JSON.stringify({ id, method, params }) + "\n");
+  });
+}
+
 function json(res, status, body) {
   res.writeHead(status, { "Content-Type": "application/json" });
   res.end(JSON.stringify(body));
@@ -41,61 +127,11 @@ function readBody(req) {
   });
 }
 
-// ---- Load QVAC Models ----
-async function loadLLMModel(modelName) {
-  try {
-    const LlmLlamacpp = (await import("@qvac/llm-llamacpp")).default || await import("@qvac/llm-llamacpp");
-    const FilesystemDL = (await import("@qvac/dl-filesystem")).default || await import("@qvac/dl-filesystem");
-
-    const fsDL = new FilesystemDL({ dirPath: MODELS_DIR });
-    const args = {
-      loader: fsDL,
-      opts: {
-        stats: true,
-        contextSize: 8192,
-        gpuLayers: 32,
-        threads: 4,
-      },
-      diskPath: MODELS_DIR,
-      modelName: modelName,
-    };
-
-    const model = new LlmLlamacpp(args);
-    await model.load();
-    modelInfo.llm_loaded = true;
-    modelInfo.llm_model = modelName;
-    console.log(`[Bridge] LLM model loaded: ${modelName}`);
-    return { model, fsDL };
-  } catch (err) {
-    console.error(`[Bridge] Failed to load LLM model: ${err.message}`);
-    return null;
-  }
-}
-
-async function loadEmbedModel(modelName) {
-  try {
-    const GGMLBert = (await import("@qvac/embed-llamacpp")).default || await import("@qvac/embed-llamacpp");
-    const FilesystemDL = (await import("@qvac/dl-filesystem")).default || await import("@qvac/dl-filesystem");
-
-    const fsDL = new FilesystemDL({ dirPath: MODELS_DIR });
-    const args = {
-      loader: fsDL,
-      opts: { threads: 2 },
-      diskPath: MODELS_DIR,
-      modelName: modelName,
-    };
-
-    const model = new GGMLBert(args);
-    await model.load();
-    modelInfo.embed_loaded = true;
-    modelInfo.embed_model = modelName;
-    console.log(`[Bridge] Embedding model loaded: ${modelName}`);
-    return { model, fsDL };
-  } catch (err) {
-    console.error(`[Bridge] Failed to load embedding model: ${err.message}`);
-    return null;
-  }
-}
+// ---- Model state ----
+let llmLoaded = false;
+let embedLoaded = false;
+let llmModelName = "";
+let embedModelName = "";
 
 // ---- HTTP Server ----
 const server = http.createServer(async (req, res) => {
@@ -112,37 +148,46 @@ const server = http.createServer(async (req, res) => {
 
   // ---- Health ----
   if (url.pathname === "/health" && req.method === "GET") {
-    return json(res, 200, { status: "ok", models: modelInfo });
+    return json(res, 200, {
+      status: "ok",
+      models: {
+        llm_loaded: llmLoaded,
+        llm_model: llmModelName,
+        embed_loaded: embedLoaded,
+        embed_model: embedModelName,
+      },
+    });
   }
 
   // ---- LLM Load ----
   if (url.pathname === "/api/llm/load" && req.method === "POST") {
     const body = await readBody(req);
     const modelName = body.model_name || "Llama-3.2-1B-Instruct-Q4_0.gguf";
-    const result = await loadLLMModel(modelName);
-    if (result) {
-      llmModel = { instance: result.model, loader: result.fsDL };
-      return json(res, 200, { status: "loaded", model: modelName });
+    try {
+      const result = await sendToWorker("load_llm", {
+        modelPath: path.join(MODELS_DIR, modelName),
+      });
+      llmLoaded = true;
+      llmModelName = modelName;
+      return json(res, 200, { status: "loaded", model: modelName, ...result });
+    } catch (err) {
+      return json(res, 500, { status: "error", message: err.message });
     }
-    return json(res, 500, { status: "error", message: "Failed to load LLM model" });
   }
 
   // ---- LLM Unload ----
   if (url.pathname === "/api/llm/unload" && req.method === "POST") {
-    if (llmModel) {
-      try {
-        await llmModel.instance.unload();
-        await llmModel.loader.close();
-      } catch {}
-      llmModel = null;
-      modelInfo.llm_loaded = false;
-    }
+    try {
+      await sendToWorker("unload_llm", {});
+    } catch {}
+    llmLoaded = false;
+    llmModelName = "";
     return json(res, 200, { status: "unloaded" });
   }
 
   // ---- LLM Chat (Streaming) ----
   if (url.pathname === "/api/llm/chat" && req.method === "POST") {
-    if (!llmModel || !llmModel.instance) {
+    if (!llmLoaded) {
       return json(res, 503, { error: "LLM model not loaded" });
     }
 
@@ -158,35 +203,22 @@ const server = http.createServer(async (req, res) => {
     });
 
     try {
-      const prompt = messages.map((m) => ({
-        role: m.role,
-        content: m.content,
-      }));
+      const chatPromise = sendToWorker(
+        "chat",
+        { messages, maxTokens, temperature },
+        (event, data) => {
+          if (event === "token") {
+            res.write(`data: ${JSON.stringify({ token: data.token })}\n\n`);
+          }
+        }
+      );
 
-      const response = await llmModel.instance.run(prompt, {
-        maxTokens,
-        temperature,
-      });
-
-      let fullText = "";
-
-      await response
-        .onUpdate((data) => {
-          fullText += data;
-          res.write(`data: ${JSON.stringify({ token: data })}\n\n`);
-        })
-        .await();
-
-      const stats = response.stats || {};
+      const final = await chatPromise;
       res.write(
         `data: ${JSON.stringify({
           done: true,
-          full_text: fullText,
-          stats: {
-            tokens_per_second: stats.tokensPerSecond || 0,
-            total_tokens: stats.totalTokens || fullText.length,
-            total_duration_ms: stats.totalDurationMs || 0,
-          },
+          full_text: final.full_text,
+          stats: final.stats,
         })}\n\n`
       );
     } catch (err) {
@@ -197,20 +229,13 @@ const server = http.createServer(async (req, res) => {
 
   // ---- Embedding ----
   if (url.pathname === "/api/embed" && req.method === "POST") {
-    if (!embedModel || !embedModel.instance) {
+    if (!embedLoaded) {
       return json(res, 503, { error: "Embedding model not loaded" });
     }
-
     const body = await readBody(req);
-    const texts = body.texts || [];
-
     try {
-      const embeddings = [];
-      for (const text of texts) {
-        const result = await embedModel.instance.embed(text);
-        embeddings.push(Array.from(result.embedding || result));
-      }
-      return json(res, 200, { embeddings });
+      const result = await sendToWorker("embed", { texts: body.texts || [] });
+      return json(res, 200, result);
     } catch (err) {
       return json(res, 500, { error: err.message });
     }
@@ -220,27 +245,31 @@ const server = http.createServer(async (req, res) => {
   if (url.pathname === "/api/embed/load" && req.method === "POST") {
     const body = await readBody(req);
     const modelName = body.model_name || "gte-large_fp16.gguf";
-    const result = await loadEmbedModel(modelName);
-    if (result) {
-      embedModel = { instance: result.model, loader: result.fsDL };
-      return json(res, 200, { status: "loaded", model: modelName });
+    try {
+      const result = await sendToWorker("load_embed", {
+        modelPath: path.join(MODELS_DIR, modelName),
+      });
+      embedLoaded = true;
+      embedModelName = modelName;
+      return json(res, 200, { status: "loaded", model: modelName, ...result });
+    } catch (err) {
+      return json(res, 500, { status: "error", message: err.message });
     }
-    return json(res, 500, { status: "error", message: "Failed to load embedding model" });
   }
 
   // ---- Model Status ----
   if (url.pathname === "/api/models/status" && req.method === "GET") {
-    return json(res, 200, modelInfo);
+    return json(res, 200, {
+      llm_loaded: llmLoaded,
+      llm_model: llmModelName,
+      embed_loaded: embedLoaded,
+      embed_model: embedModelName,
+    });
   }
 
   // ---- Abort ----
   if (url.pathname === "/api/llm/abort" && req.method === "POST") {
-    if (llmModel && llmModel.instance) {
-      try {
-        await llmModel.instance.abort();
-      } catch {}
-    }
-    events.emit("abort");
+    try { await sendToWorker("abort", {}); } catch {}
     return json(res, 200, { status: "aborted" });
   }
 
@@ -248,21 +277,32 @@ const server = http.createServer(async (req, res) => {
   json(res, 404, { error: "Not found" });
 });
 
-server.listen(BRIDGE_PORT, BRIDGE_HOST, () => {
-  console.log(`[Bridge] QVAC Bridge Service running on ${BRIDGE_HOST}:${BRIDGE_PORT}`);
-});
+// ---- Startup ----
+async function main() {
+  console.log("[Bridge] Starting QVAC Bare Worker...");
+  try {
+    await startWorker();
+    console.log("[Bridge] Worker ready");
+  } catch (err) {
+    console.error("[Bridge] Failed to start worker:", err.message);
+    process.exit(1);
+  }
+
+  server.listen(BRIDGE_PORT, BRIDGE_HOST, () => {
+    console.log(`[Bridge] QVAC Bridge Service on ${BRIDGE_HOST}:${BRIDGE_PORT}`);
+  });
+}
 
 // Graceful shutdown
 process.on("SIGINT", async () => {
   console.log("[Bridge] Shutting down...");
-  if (llmModel) {
-    try { await llmModel.instance.unload(); } catch {}
-    try { await llmModel.loader.close(); } catch {}
-  }
-  if (embedModel) {
-    try { await embedModel.instance.unload(); } catch {}
-    try { await embedModel.loader.close(); } catch {}
+  if (workerProc) {
+    try { await sendToWorker("unload_llm", {}); } catch {}
+    try { await sendToWorker("unload_embed", {}); } catch {}
+    workerProc.kill();
   }
   server.close();
   process.exit(0);
 });
+
+main();

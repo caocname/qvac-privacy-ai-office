@@ -75,6 +75,42 @@ async def lifespan(app: FastAPI):
 
     logger.log(LogType.SYSTEM, {"event": "kill_switch_started"})
 
+    # ---- 自动加载模型到 Bridge ----
+    from backend.services.llm_service import get_llm_service
+    import asyncio
+
+    llm_svc = get_llm_service()
+
+    bridge_available = False
+    for i in range(10):
+        if await llm_svc.health():
+            logger.log(LogType.SYSTEM, {"event": "bridge_health_ok", "retry": i})
+            bridge_available = True
+            break
+        await asyncio.sleep(1.0)
+
+    if bridge_available:
+        if await llm_svc.load_model():
+            logger.log(LogType.SYSTEM, {"event": "llm_model_loaded"})
+        else:
+            logger.log(LogType.ERROR, {
+                "event": "llm_model_load_failed",
+                "message": "LLM 模型加载失败，请检查模型文件是否存在于 data/models/",
+            })
+
+        if await llm_svc.load_embed_model():
+            logger.log(LogType.SYSTEM, {"event": "embed_model_loaded"})
+        else:
+            logger.log(LogType.ERROR, {
+                "event": "embed_model_load_failed",
+                "message": "Embedding 模型加载失败，请检查模型文件是否存在于 data/models/",
+            })
+    else:
+        logger.log(LogType.ERROR, {
+            "event": "bridge_health_timeout",
+            "message": "Bridge 服务 10s 内未就绪，跳过模型加载。请先启动 Bridge: cd bridge && node index.js",
+        })
+
     _sampler = ResourceSampler(interval_s=1.0)
     _sampler.start()
     logger.log(LogType.SYSTEM, {"event": "resource_sampler_started"})
