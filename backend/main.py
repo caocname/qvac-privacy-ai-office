@@ -22,6 +22,33 @@ async def lifespan(app: FastAPI):
 
     logger.log(LogType.SYSTEM, {"event": "backend_startup"})
 
+    # ---- 凭据管理器自检 ----
+    from backend.crypto.aes_gcm import derive_key_from_credential, initialize_master_key
+
+    master_key = derive_key_from_credential()
+    if not master_key:
+        # 首次启动: 自动生成主密钥并注入 Windows 凭据管理器
+        logger.log(LogType.SECURITY, {"event": "credential_not_found_generating"})
+        master_key = initialize_master_key()
+        if master_key:
+            logger.log(LogType.SECURITY, {
+                "event": "master_key_initialized",
+                "note": "首次启动 — 请通过 GET /api/v1/system/credential/export 导出恢复密钥",
+            })
+        else:
+            logger.log(LogType.ERROR, {
+                "event": "credential_init_failed",
+                "message": "无法访问 Windows 凭据管理器。请确保 keyring 已正确安装。",
+            })
+
+    # 凭据状态记录
+    cred_present = master_key is not None
+    logger.log(LogType.SYSTEM, {
+        "event": "credential_check_complete",
+        "credential_present": cred_present,
+        "credential_lost": not cred_present,
+    })
+
     from backend.database.connection import DatabaseManager
     DatabaseManager.get_instance()
     logger.log(LogType.SYSTEM, {"event": "database_initialized"})
@@ -64,7 +91,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="QVAC Hackathon 离线 AI 办公助手",
-    version="0.1.0",
+    version="0.2.0",
     lifespan=lifespan,
 )
 

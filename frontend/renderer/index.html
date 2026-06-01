@@ -9,25 +9,43 @@
 </head>
 <body>
   <div id="app">
-    <!-- 侧边导航栏 -->
+    <!-- 侧边栏 — 会话树 + 导航 -->
     <nav id="sidebar">
       <div class="nav-header">
         <h1>QVAC 办公助手</h1>
         <span id="status-badge" class="badge badge-idle">就绪</span>
       </div>
+
+      <!-- 会话列表 -->
+      <div class="session-section">
+        <div class="section-header">
+          <span>会话</span>
+          <button id="new-session-btn" class="btn btn-tiny" title="新建会话">+</button>
+        </div>
+        <ul id="session-list" class="session-list">
+          <li class="session-item active" data-session-id="">
+            <span class="session-title">新会话</span>
+          </li>
+        </ul>
+      </div>
+
+      <!-- 导航 -->
       <ul class="nav-list">
-        <li class="nav-item active" data-page="chat">
-          <svg class="nav-icon" viewBox="0 0 24 24" width="18" height="18">
-            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" fill="currentColor"/>
-          </svg>
-          <span>对话</span>
-        </li>
         <li class="nav-item" data-page="knowledge">
           <svg class="nav-icon" viewBox="0 0 24 24" width="18" height="18">
             <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" fill="currentColor"/>
             <polyline points="14 2 14 8 20 8" fill="none" stroke="currentColor" stroke-width="2"/>
           </svg>
           <span>知识库</span>
+        </li>
+        <li class="nav-item" data-page="asr">
+          <svg class="nav-icon" viewBox="0 0 24 24" width="18" height="18">
+            <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" fill="currentColor"/>
+            <path d="M19 10v2a7 7 0 0 1-14 0v-2" fill="none" stroke="currentColor" stroke-width="2"/>
+            <line x1="12" y1="19" x2="12" y2="23" stroke="currentColor" stroke-width="2"/>
+            <line x1="8" y1="23" x2="16" y2="23" stroke="currentColor" stroke-width="2"/>
+          </svg>
+          <span>语音转写</span>
         </li>
         <li class="nav-item" data-page="audit">
           <svg class="nav-icon" viewBox="0 0 24 24" width="18" height="18">
@@ -44,15 +62,17 @@
           <span>系统设置</span>
         </li>
       </ul>
+
       <div class="nav-footer">
         <span id="connection-dot" class="dot dot-disconnected"></span>
-        <span class="footer-text">后端状态</span>
+        <span class="footer-text" id="footer-status">后端未连接</span>
       </div>
     </nav>
 
     <!-- 主内容区 -->
     <main id="content">
-      <!-- 对话页 -->
+
+      <!-- ============ 对话页 (默认) ============ -->
       <section id="page-chat" class="page active">
         <div class="chat-container">
           <div id="chat-messages" class="chat-messages">
@@ -73,48 +93,107 @@
         </div>
       </section>
 
-      <!-- 知识库页 -->
+      <!-- ============ 知识库页 ============ -->
       <section id="page-knowledge" class="page">
         <div class="page-header">
           <h2>知识库管理</h2>
-          <button id="upload-btn" class="btn btn-primary">上传文档</button>
-          <input type="file" id="file-input" hidden accept=".pdf,.docx,.txt" />
+          <div class="header-actions">
+            <select id="isolate-mode-select" class="select-sm">
+              <option value="session">隔离: 会话</option>
+              <option value="global">隔离: 全局</option>
+              <option value="temp">隔离: 临时</option>
+            </select>
+            <button id="upload-btn" class="btn btn-primary">上传文档</button>
+            <input type="file" id="file-input" hidden accept=".pdf,.docx,.txt" />
+          </div>
         </div>
         <div id="knowledge-list" class="list-container">
           <p class="empty-state">尚未上传任何文档</p>
         </div>
       </section>
 
-      <!-- 审计日志页 -->
+      <!-- ============ 语音转写页 ============ -->
+      <section id="page-asr" class="page">
+        <div class="page-header">
+          <h2>语音转写 (ASR)</h2>
+          <span class="hint-text">仅支持标准 WAV 格式</span>
+        </div>
+        <div class="asr-container">
+          <!-- 上传区 -->
+          <div class="asr-upload-zone">
+            <div class="upload-drop" id="asr-drop-zone">
+              <p>拖入 WAV 音频文件或点击选择</p>
+              <p class="sub-text">支持单声道/立体声 16bit WAV</p>
+              <input type="file" id="asr-file-input" hidden accept=".wav" />
+              <button id="asr-select-btn" class="btn btn-primary">选择音频文件</button>
+            </div>
+          </div>
+
+          <!-- 任务进度区 -->
+          <div id="asr-task-panel" class="asr-task-panel hidden">
+            <div class="asr-task-header">
+              <span id="asr-task-id" class="task-id"></span>
+              <span id="asr-task-status" class="badge badge-idle">处理中</span>
+            </div>
+            <div class="progress-bar-wrapper">
+              <div id="asr-progress-bar" class="progress-bar" style="width: 0%"></div>
+            </div>
+            <div class="asr-task-info">
+              <span id="asr-progress-text">0%</span>
+              <span id="asr-remaining-text">剩余: --</span>
+            </div>
+          </div>
+
+          <!-- 转写结果 -->
+          <div id="asr-result-panel" class="asr-result-panel hidden">
+            <div class="asr-result-header">
+              <span>转写结果</span>
+              <span id="asr-result-duration"></span>
+            </div>
+            <div id="asr-result-text" class="asr-result-text"></div>
+          </div>
+
+          <!-- 历史记录 -->
+          <div class="asr-archive-section">
+            <h3>历史转写记录</h3>
+            <div id="asr-archive-list" class="list-container">
+              <p class="empty-state">暂无转写记录</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============ 审计日志页 ============ -->
       <section id="page-audit" class="page">
         <div class="page-header">
           <h2>审计日志</h2>
-          <button id="export-logs-btn" class="btn btn-secondary">导出日志</button>
+          <button id="export-logs-btn" class="btn btn-secondary">导出 JSON</button>
         </div>
         <div id="audit-table-wrapper" class="table-wrapper">
           <table id="audit-table" class="audit-table">
             <thead>
               <tr>
-                <th>时间 (相对)</th>
+                <th>相对时间</th>
                 <th>绝对时间</th>
                 <th>类型</th>
                 <th>摘要</th>
               </tr>
             </thead>
             <tbody id="audit-tbody">
-              <tr><td colspan="4" class="empty-state">点击「导出日志」加载审计数据</td></tr>
+              <tr><td colspan="4" class="empty-state">点击「导出 JSON」加载审计数据</td></tr>
             </tbody>
           </table>
         </div>
         <div id="audit-pagination" class="pagination"></div>
       </section>
 
-      <!-- 系统设置页 -->
+      <!-- ============ 系统设置页 ============ -->
       <section id="page-settings" class="page">
         <div class="page-header">
           <h2>系统设置</h2>
         </div>
         <div class="settings-container">
+          <!-- 系统状态 -->
           <div class="setting-group">
             <h3>系统状态</h3>
             <div id="system-state" class="state-card">
@@ -123,6 +202,8 @@
               <div class="state-row"><span>Kill Switch</span><code id="state-ks">--</code></div>
             </div>
           </div>
+
+          <!-- 硬件信息 -->
           <div class="setting-group">
             <h3>硬件信息</h3>
             <div class="state-card">
@@ -131,10 +212,18 @@
               <div class="state-row"><span>RAM 使用</span><code id="hw-ram">--</code></div>
             </div>
           </div>
+
+          <!-- 数据安全 -->
           <div class="setting-group">
             <h3>数据安全</h3>
             <div class="state-card">
               <div class="state-row"><span>凭据管理器</span><code id="sec-cred">--</code></div>
+              <div class="state-row"><span>加密状态</span><code id="sec-enc">--</code></div>
+            </div>
+            <div class="security-actions">
+              <button id="export-key-btn" class="btn btn-secondary" style="margin-top:8px">导出恢复密钥 (.key)</button>
+              <button id="gen-mnemonic-btn" class="btn btn-secondary" style="margin-top:8px;margin-left:8px">生成助记词</button>
+              <button id="import-key-btn" class="btn btn-secondary" style="margin-top:8px;margin-left:8px">导入恢复密钥</button>
             </div>
           </div>
         </div>
@@ -142,9 +231,67 @@
     </main>
   </div>
 
+  <!-- ========== Kill Switch 网络锁定覆层 ========== -->
   <div id="overlay" class="overlay hidden">
     <div class="overlay-content">
-      <p id="overlay-text">系统已锁定</p>
+      <p id="overlay-text">检测到程序异常网络行为，AI 功能已锁定。</p>
+    </div>
+  </div>
+
+  <!-- ========== 凭证恢复弹窗 ========== -->
+  <div id="credential-modal" class="modal hidden">
+    <div class="modal-mask"></div>
+    <div class="modal-dialog">
+      <h3 id="credential-modal-title">密钥灾备恢复</h3>
+      <p id="credential-modal-msg">Windows 凭据管理器主密钥丢失，请导入恢复文件或助记词。</p>
+      <div class="modal-body">
+        <textarea id="credential-input" class="credential-input" placeholder="粘贴 .key 文件内容 (64位 hex) 或 12 位中文助记词"></textarea>
+      </div>
+      <div class="modal-footer">
+        <button id="credential-submit-btn" class="btn btn-primary">提交恢复</button>
+        <button id="credential-cancel-btn" class="btn btn-secondary">稍后处理</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ========== 首次设置引导弹窗 ========== -->
+  <div id="setup-modal" class="modal hidden">
+    <div class="modal-mask"></div>
+    <div class="modal-dialog">
+      <h3>首次启动 — 安全配置</h3>
+      <p>本地加密主密钥已自动生成。请务必导出并安全保存恢复密钥，否则数据将无法恢复。</p>
+      <div class="modal-body">
+        <div class="setup-key-row">
+          <span>恢复密钥 (64 hex):</span>
+          <code id="setup-key-hex" class="key-display">加载中...</code>
+          <button id="setup-copy-key" class="btn btn-small">复制</button>
+        </div>
+        <div class="setup-key-row">
+          <span>12 位助记词:</span>
+          <code id="setup-mnemonic" class="key-display">加载中...</code>
+          <button id="setup-copy-mnemonic" class="btn btn-small">复制</button>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button id="setup-download-btn" class="btn btn-primary">下载 .key 文件</button>
+        <button id="setup-done-btn" class="btn btn-secondary">我已安全保存</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ========== Toast 通知 ========== -->
+  <div id="toast" class="toast hidden"></div>
+
+  <!-- ========== 二次确认弹窗 (3s 倒计时锁) ========== -->
+  <div id="confirm-modal" class="modal hidden">
+    <div class="modal-mask"></div>
+    <div class="modal-dialog modal-sm">
+      <h3 id="confirm-modal-title">确认操作</h3>
+      <p id="confirm-modal-msg"></p>
+      <div class="modal-footer">
+        <button id="confirm-yes-btn" class="btn btn-danger" disabled>确认 (3s)</button>
+        <button id="confirm-no-btn" class="btn btn-secondary">取消</button>
+      </div>
     </div>
   </div>
 

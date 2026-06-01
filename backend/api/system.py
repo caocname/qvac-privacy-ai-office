@@ -1,6 +1,8 @@
 """
-系统 API — 状态查询、凭据灾备恢复、密钥导出。
+系统 API — 状态查询、凭据灾备恢复、密钥导出、首次启动引导。
 """
+from datetime import datetime, timezone
+
 from fastapi import APIRouter
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
@@ -10,6 +12,7 @@ from backend.crypto.aes_gcm import (
     inject_key,
     export_recovery_key,
     initialize_master_key,
+    generate_mnemonic,
 )
 from backend.logger.audit_logger import get_audit_logger
 from backend.logger.log_models import LogType
@@ -115,6 +118,49 @@ async def export_key():
             "recovery_key_hex": recovery_hex,
             "save_as": "safe_recovery.key",
             "warning": "Store this key in a secure location. It can decrypt all local data.",
+        },
+    }
+
+
+@router.get("/setup/status")
+async def setup_status():
+    """首次启动引导状态检查 — 前端可据此决定是否弹出密钥导出引导。
+
+    返回:
+    - needs_setup: True 表示首次启动，需要引导用户导出 .key 恢复文件
+    - is_first_run: True 表示刚完成主密钥初始化
+    """
+    key = derive_key_from_credential()
+    return {
+        "code": StateCode.IDLE.value,
+        "status": StateCode.IDLE.name,
+        "data": {
+            "credential_present": key is not None,
+            "credential_lost": key is None,
+            "needs_setup": key is not None,  # 始终建议导出
+        },
+    }
+
+
+@router.get("/setup/mnemonic")
+async def generate_mnemonic_phrase():
+    """生成 12 位中文助记词 (用于灾备恢复的备选方案)。
+
+    安全注意: 助记词可以恢复所有本地加密数据。请引导用户在安全处保管。
+    """
+    mnemonic = generate_mnemonic()
+    key_hex = export_recovery_key()
+
+    get_audit_logger().log(LogType.SECURITY, {"event": "mnemonic_generated"})
+
+    return {
+        "code": StateCode.IDLE.value,
+        "status": StateCode.IDLE.name,
+        "data": {
+            "mnemonic_12_words": mnemonic,
+            "recovery_key_hex": key_hex,
+            "save_as": "safe_recovery.key",
+            "warning": "请将助记词和密钥保存在安全位置。丢失将导致所有加密数据无法恢复。",
         },
     }
 

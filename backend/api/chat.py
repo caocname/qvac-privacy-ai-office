@@ -26,6 +26,7 @@ class ChatRequest(BaseModel):
     session_id: str = Field(..., description="会话 ID")
     message: str = Field(..., min_length=1, max_length=8192)
     enable_rag: bool = Field(default=True, description="是否启用 RAG 检索增强")
+    isolate_mode: str = Field(default="session", description="对话隔离模式: global | session | temp")
 
 
 class ChatCreateSession(BaseModel):
@@ -58,6 +59,61 @@ async def get_history(session_id: str = Query(...)):
     return {"code": StateCode.IDLE.value, "status": StateCode.IDLE.name, "data": history}
 
 
+@router.post("/session/close")
+async def close_session(session_id: str = Query(...)):
+    """关闭会话 — 清空 Temp 文档 + 释放显存缓存。
+
+    PRD §3.4: Temp 模态会话切换时必须物理强制销毁向量索引、分片缓存及上下文。
+    """
+    from backend.services.rag_service import RAGService
+
+    purged = RAGService.purge_temp_for_session(session_id)
+
+    get_audit_logger().log(LogType.SESSION, {
+        "event": "session_closed",
+        "session_id": session_id,
+        "temp_docs_purged": purged,
+    })
+
+    return {
+        "code": StateCode.IDLE.value,
+        "status": StateCode.IDLE.name,
+        "data": {
+            "session_id": session_id,
+            "temp_documents_purged": purged,
+            "message": f"会话已关闭，清理了 {purged} 个临时文档。",
+        },
+    }
+
+
+@router.post("/session/switch")
+async def switch_session(
+    from_session_id: str = Query(...),
+    to_session_id: str = Query(...),
+):
+    """切换会话 — 销毁源会话 Temp 文档缓存。"""
+    from backend.services.rag_service import RAGService
+
+    purged = RAGService.purge_temp_for_session(from_session_id)
+
+    get_audit_logger().log(LogType.SESSION, {
+        "event": "session_switched",
+        "from_session": from_session_id,
+        "to_session": to_session_id,
+        "temp_docs_purged": purged,
+    })
+
+    return {
+        "code": StateCode.IDLE.value,
+        "status": StateCode.IDLE.name,
+        "data": {
+            "from_session": from_session_id,
+            "to_session": to_session_id,
+            "temp_documents_purged": purged,
+        },
+    }
+
+
 @router.post("/send")
 async def send_message(req: ChatRequest):
     """发送消息 — 流式 SSE 响应。
@@ -88,7 +144,11 @@ async def send_message(req: ChatRequest):
         embeddings = await llm.embed([req.message])
         if embeddings:
             import numpy as np
-            result = rag_service.retrieve(np.array(embeddings[0]))
+            result = rag_service.retrieve(
+                np.array(embeddings[0]),
+                isolate_mode=req.isolate_mode,
+                session_id=req.session_id,
+            )
             if result["code"] != 145:
                 rag_chunks = [c["content"] for c in result.get("chunks", [])]
                 rag_metas = [
