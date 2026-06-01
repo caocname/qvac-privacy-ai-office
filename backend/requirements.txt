@@ -6,3 +6,6 @@ keyring>=25.0.0
 aiofiles>=24.0.0
 psutil>=7.0.0
 nvidia-ml-py>=13.0.0
+httpx>=0.28.0
+python-multipart>=0.0.18
+numpy>=2.0.0

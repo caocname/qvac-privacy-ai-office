@@ -1,0 +1,17 @@
+{
+  "name": "qvac-bridge",
+  "version": "0.1.0",
+  "description": "QVAC SDK Bridge Service for QVAC Hackathon V0.1",
+  "private": true,
+  "type": "module",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "node --watch index.js"
+  },
+  "dependencies": {
+    "@qvac/llm-llamacpp": "^0.22.0",
+    "@qvac/embed-llamacpp": "^0.17.0",
+    "@qvac/dl-filesystem": "^0.5.0"
+  }
+}

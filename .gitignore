@@ -24,6 +24,8 @@ dist/
 
 # 数据库文件
 *.db
+*.db-shm
+*.db-wal
 *.sqlite3
 
 # 临时文件

@@ -29,6 +29,23 @@ async def lifespan(app: FastAPI):
     from backend.services.kill_switch import get_kill_switch
     ks = get_kill_switch()
     ks.start()
+
+    # 自动发现并注册 Bridge 进程 PID (监听 127.0.0.1:18889 的 node 进程)
+    import psutil
+    for proc in psutil.process_iter(['pid', 'name']):
+        try:
+            if proc.info['name'] and 'node' in proc.info['name'].lower():
+                for conn in proc.connections(kind='inet'):
+                    if conn.laddr and conn.laddr.port == 18889:
+                        ks.register_bridge_pid(proc.pid)
+                        logger.log(LogType.SYSTEM, {
+                            "event": "bridge_pid_registered",
+                            "bridge_pid": proc.pid,
+                        })
+                        break
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            continue
+
     logger.log(LogType.SYSTEM, {"event": "kill_switch_started"})
 
     _sampler = ResourceSampler(interval_s=1.0)
@@ -65,12 +82,14 @@ install_global_exception_hook()
 # ---- API 路由注册 ----
 from backend.logger.log_router import router as log_router
 from backend.api.knowledge import router as knowledge_router
+from backend.api.chat import router as chat_router
 from backend.api.asr import router as asr_router
 from backend.api.tts import router as tts_router
 from backend.api.system import router as system_router
 
 app.include_router(log_router)
 app.include_router(knowledge_router)
+app.include_router(chat_router)
 app.include_router(asr_router)
 app.include_router(tts_router)
 app.include_router(system_router)
