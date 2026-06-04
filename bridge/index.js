@@ -23,13 +23,28 @@ import {
   WHISPER_BASE_Q0F16,
 } from "@qvac/sdk";
 
+// TTS 可选导入（SDK v0.11+ 才支持 Chatterbox TTS）
+let textToSpeech, TTS_T3_TURBO_EN_CHATTERBOX_Q8_0, TTS_S3GEN_EN_CHATTERBOX;
+let ttsAvailable = false;
+try {
+  const ttsModule = await import("@qvac/sdk");
+  textToSpeech = ttsModule.textToSpeech;
+  TTS_T3_TURBO_EN_CHATTERBOX_Q8_0 = ttsModule.TTS_T3_TURBO_EN_CHATTERBOX_Q8_0;
+  TTS_S3GEN_EN_CHATTERBOX = ttsModule.TTS_S3GEN_EN_CHATTERBOX;
+  if (textToSpeech && TTS_T3_TURBO_EN_CHATTERBOX_Q8_0) ttsAvailable = true;
+} catch {
+  process.stderr.write("[Bridge] TTS models not available in this SDK version (requires v0.11+)\n");
+}
+
 // ---- Model state ----
 let llmModelId = null;
 let embedModelId = null;
 let whisperModelId = null;
+let ttsModelId = null;
 let llmModelName = "";
 let embedModelName = "";
 let whisperModelName = "";
+let ttsModelName = "";
 
 // Map Python backend model names to SDK model descriptors
 const MODEL_DESCRIPTOR_MAP = {
@@ -79,6 +94,8 @@ const server = http.createServer(async (req, res) => {
         embed_model: embedModelName,
         whisper_loaded: whisperModelId !== null,
         whisper_model: whisperModelName,
+        tts_loaded: ttsModelId !== null,
+        tts_model: ttsModelName,
       },
     });
   }
@@ -306,6 +323,135 @@ const server = http.createServer(async (req, res) => {
     }
   }
 
+  // ---- TTS Speak ----
+  if (url.pathname === "/api/tts/speak" && req.method === "POST") {
+    if (!ttsAvailable) {
+      return json(res, 503, { error: "TTS model not available in this SDK version (requires v0.11+)" });
+    }
+    const body = await readBody(req);
+    const text = body.text || "";
+    const language = body.language || "zh";
+
+    if (!text) {
+      return json(res, 400, { error: "text is required" });
+    }
+
+    let modelId = ttsModelId;
+    if (!modelId) {
+      try {
+        process.stderr.write(`[Bridge] Loading TTS Chatterbox model...\n`);
+        modelId = await loadModel({
+          modelSrc: TTS_T3_TURBO_EN_CHATTERBOX_Q8_0.src,
+          modelType: "tts",
+          modelConfig: {
+            ttsEngine: "chatterbox",
+            language: language === "zh" ? "zh" : "en",
+            s3genModelSrc: TTS_S3GEN_EN_CHATTERBOX.src,
+          },
+        });
+        ttsModelId = modelId;
+        ttsModelName = "Chatterbox-T3-Turbo";
+        process.stderr.write(`[Bridge] TTS loaded — modelId=${modelId}\n`);
+      } catch (err) {
+        process.stderr.write(`[Bridge] TTS load error: ${err.message}\n`);
+        return json(res, 500, { error: "Failed to load TTS model: " + err.message });
+      }
+    }
+
+    try {
+      const result = textToSpeech({ modelId, text, inputType: "text", stream: false });
+      const audioBuffer = await result.buffer;
+      const sampleRate = 24000;
+      // Build minimal WAV header
+      const numChannels = 1;
+      const bitsPerSample = 16;
+      const byteRate = sampleRate * numChannels * bitsPerSample / 8;
+      const blockAlign = numChannels * bitsPerSample / 8;
+      const dataSize = audioBuffer.length * 2;
+      const header = Buffer.alloc(44);
+      header.write("RIFF", 0);
+      header.writeUInt32LE(36 + dataSize, 4);
+      header.write("WAVE", 8);
+      header.write("fmt ", 12);
+      header.writeUInt32LE(16, 16);
+      header.writeUInt16LE(1, 20); // PCM
+      header.writeUInt16LE(numChannels, 22);
+      header.writeUInt32LE(sampleRate, 24);
+      header.writeUInt32LE(byteRate, 28);
+      header.writeUInt16LE(blockAlign, 32);
+      header.writeUInt16LE(bitsPerSample, 34);
+      header.write("data", 36);
+      header.writeUInt32LE(dataSize, 40);
+      const audioData = Buffer.from(Int16Array.from(audioBuffer).buffer);
+      const wavBuffer = Buffer.concat([header, audioData]);
+      process.stderr.write(`[Bridge] TTS done — ${audioBuffer.length} samples\n`);
+      res.writeHead(200, { "Content-Type": "audio/wav" });
+      return res.end(wavBuffer);
+    } catch (err) {
+      process.stderr.write(`[Bridge] TTS error: ${err.message}\n`);
+      return json(res, 500, { error: err.message });
+    }
+  }
+
+  // ---- Translate (via LLM) ----
+  if (url.pathname === "/api/translate" && req.method === "POST") {
+    if (!llmModelId) {
+      return json(res, 503, { error: "LLM model not loaded" });
+    }
+    const body = await readBody(req);
+    const text = body.text || "";
+    const sourceLang = body.source_lang || "auto";
+    const targetLang = body.target_lang || "zh";
+
+    if (!text) {
+      return json(res, 400, { error: "text is required" });
+    }
+
+    try {
+      const systemPrompt = sourceLang === "zh" && targetLang === "en"
+        ? "You are a professional translator. Translate the following Chinese text to English accurately. Only output the translation, no explanations."
+        : "你是一位专业翻译。请将以下文本准确翻译为中文。只输出译文，不要添加解释。";
+
+      const messages = [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: text },
+      ];
+
+      let fullText = "";
+      const run = completion({
+        modelId: llmModelId,
+        history: messages,
+        stream: true,
+        generationParams: { predict: 4096, temp: 0.3 },
+      });
+
+      for await (const ev of run.events) {
+        if (ev.type === "contentDelta" && ev.text) {
+          fullText += ev.text;
+        }
+      }
+      await run.final;
+
+      process.stderr.write(`[Bridge] Translation done — ${fullText.length} chars\n`);
+      return json(res, 200, { translated_text: fullText.trim() });
+    } catch (err) {
+      process.stderr.write(`[Bridge] Translate error: ${err.message}\n`);
+      return json(res, 500, { error: err.message });
+    }
+  }
+
+  // ---- TTS Unload ----
+  if (url.pathname === "/api/tts/unload" && req.method === "POST") {
+    try {
+      if (ttsModelId) {
+        await unloadModel({ modelId: ttsModelId });
+      }
+    } catch {}
+    ttsModelId = null;
+    ttsModelName = "";
+    return json(res, 200, { status: "unloaded" });
+  }
+
   // 404
   json(res, 404, { error: "Not found" });
 });
@@ -325,6 +471,7 @@ process.on("SIGINT", async () => {
     if (llmModelId) await unloadModel({ modelId: llmModelId });
     if (embedModelId) await unloadModel({ modelId: embedModelId });
     if (whisperModelId) await unloadModel({ modelId: whisperModelId });
+    if (ttsModelId) await unloadModel({ modelId: ttsModelId });
   } catch {}
   server.close();
   process.exit(0);

@@ -53,6 +53,13 @@
           </svg>
           <span>语音转写</span>
         </li>
+        <li class="nav-item" data-page="translate">
+          <svg class="nav-icon" viewBox="0 0 24 24" width="18" height="18">
+            <path d="M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10z" fill="none" stroke="currentColor" stroke-width="2"/>
+            <path d="M2 12h20M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" fill="none" stroke="currentColor" stroke-width="2"/>
+          </svg>
+          <span>翻译</span>
+        </li>
         <li class="nav-item" data-page="audit">
           <svg class="nav-icon" viewBox="0 0 24 24" width="18" height="18">
             <path d="M12 20h9" fill="none" stroke="currentColor" stroke-width="2"/>
@@ -119,16 +126,26 @@
         <div class="page-header">
           <h2>知识库管理</h2>
           <div class="header-actions">
-            <select id="isolate-mode-select" class="select-sm">
-              <option value="session">隔离: 会话</option>
-              <option value="global">隔离: 全局</option>
-              <option value="temp">隔离: 临时</option>
-            </select>
             <select id="kb-folder-select" class="select-sm" style="max-width:140px">
               <option value="">📁 根目录</option>
             </select>
             <button id="upload-btn" class="btn btn-primary">上传文档</button>
             <input type="file" id="file-input" hidden accept=".pdf,.docx,.txt,.md" />
+          </div>
+        </div>
+        <!-- 批量操作栏 -->
+        <div class="batch-bar" id="kb-batch-bar">
+          <label class="batch-check-all"><input type="checkbox" id="kb-check-all" onchange="toggleAllKB(this)" /> 全选</label>
+          <span class="batch-count" id="kb-batch-count">已选 0 项</span>
+          <div class="batch-actions">
+            <select id="kb-batch-isolate-mode" class="select-sm" style="width:110px" onchange="batchIsolate(this.value);this.value=''">
+              <option value="">批量隔离...</option>
+              <option value="global">全局</option>
+              <option value="session">会话</option>
+              <option value="temp">临时</option>
+            </select>
+            <button class="btn btn-small btn-danger" onclick="batchKnowledgeAction('delete')">批量删除</button>
+            <button class="btn btn-small" onclick="batchKnowledgeAction('translate')">批量翻译</button>
           </div>
         </div>
         <div class="kb-layout">
@@ -159,6 +176,21 @@
           <span class="hint-text">仅支持标准 WAV 格式</span>
         </div>
         <div class="asr-container">
+          <!-- ASR 批量操作栏 -->
+          <div class="batch-bar" id="asr-batch-bar">
+            <label class="batch-check-all"><input type="checkbox" id="asr-check-all" onchange="toggleAllASR(this)" /> 全选</label>
+            <span class="batch-count" id="asr-batch-count">已选 0 项</span>
+            <div class="batch-actions">
+              <select id="asr-batch-format" class="select-sm" style="width:100px">
+                <option value="txt">TXT</option>
+                <option value="md">Markdown</option>
+                <option value="docx">DOCX</option>
+              </select>
+              <button class="btn btn-small" onclick="batchASR('export')">批量导出</button>
+              <button class="btn btn-small btn-primary" onclick="batchASR('import-kb')">批量导入知识库</button>
+              <button class="btn btn-small btn-danger" onclick="batchASR('delete')">批量删除</button>
+            </div>
+          </div>
           <!-- 上传区 -->
           <div class="asr-upload-zone">
             <div class="upload-drop" id="asr-drop-zone">
@@ -207,6 +239,50 @@
             <h3>历史转写记录</h3>
             <div id="asr-archive-list" class="list-container">
               <p class="empty-state">暂无转写记录</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============ 翻译文本视窗 ============ -->
+      <section id="page-translate" class="page">
+        <div class="page-header">
+          <h2>翻译文本视窗</h2>
+          <div class="header-actions">
+            <select id="tr-export-format" class="select-sm" style="width:100px">
+              <option value="txt">TXT</option>
+              <option value="md">Markdown</option>
+              <option value="docx">DOCX</option>
+            </select>
+            <button id="tr-export-btn" class="btn btn-small" onclick="exportTranslation()">导出</button>
+            <button id="tr-import-kb-btn" class="btn btn-small btn-primary" onclick="importTranslationToKB()">导入知识库</button>
+          </div>
+        </div>
+        <div class="translate-container">
+          <div class="translate-sidebar">
+            <h4>翻译记录</h4>
+            <div id="tr-history-list" class="tr-history-list">
+              <p class="empty-state">暂无翻译记录</p>
+            </div>
+          </div>
+          <div class="translate-main">
+            <div class="translate-panel">
+              <div class="translate-panel-header">
+                <span>原文</span>
+                <span id="tr-source-name" class="hint-text"></span>
+              </div>
+              <div id="tr-source-text" class="translate-text-box">
+                <p class="empty-state">选择文档并点击翻译按钮开始</p>
+              </div>
+            </div>
+            <div class="translate-panel">
+              <div class="translate-panel-header">
+                <span>译文</span>
+                <span id="tr-target-lang" class="hint-text">目标: 中文</span>
+              </div>
+              <div id="tr-target-text" class="translate-text-box">
+                <p class="empty-state">翻译结果将在此显示</p>
+              </div>
             </div>
           </div>
         </div>
@@ -379,6 +455,45 @@
       <div class="modal-footer">
         <button id="asr-import-submit-btn" class="btn btn-primary">确认导入</button>
         <button id="asr-import-cancel-btn" class="btn btn-secondary">取消</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ========== 翻译导入知识库弹窗 ========== -->
+  <div id="tr-import-modal" class="modal hidden">
+    <div class="modal-mask"></div>
+    <div class="modal-dialog import-dialog">
+      <h3>导入翻译结果到知识库</h3>
+      <div class="modal-body">
+        <div class="import-form-group">
+          <label>文档标题</label>
+          <input type="text" id="tr-import-title" placeholder="翻译文档标题" maxlength="256" />
+        </div>
+        <div class="import-form-group">
+          <label>导入格式</label>
+          <select id="tr-import-format">
+            <option value="txt">纯文本 (TXT)</option>
+            <option value="md">Markdown (MD)</option>
+          </select>
+        </div>
+        <div class="import-form-group">
+          <label>隔离模式</label>
+          <select id="tr-import-isolate">
+            <option value="global">全局 (global)</option>
+            <option value="session">会话 (session)</option>
+            <option value="temp">临时 (temp)</option>
+          </select>
+        </div>
+        <div class="import-form-group">
+          <label>目标文件夹</label>
+          <select id="tr-import-folder">
+            <option value="">根目录</option>
+          </select>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button id="tr-import-submit-btn" class="btn btn-primary">确认导入</button>
+        <button id="tr-import-cancel-btn" class="btn btn-secondary">取消</button>
       </div>
     </div>
   </div>

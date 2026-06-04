@@ -92,6 +92,7 @@ var pages = {
   chat: document.getElementById("page-chat"),
   knowledge: document.getElementById("page-knowledge"),
   asr: document.getElementById("page-asr"),
+  translate: document.getElementById("page-translate"),
   audit: document.getElementById("page-audit"),
   settings: document.getElementById("page-settings"),
 };
@@ -107,6 +108,7 @@ document.querySelectorAll(".nav-item").forEach(function (item) {
     if (target === "settings") loadSystemState();
     if (target === "knowledge") { loadFolderTree().then(function () { loadKnowledgeList(); }); }
     if (target === "asr") { loadASRArchives(); loadFolderTree(); }
+    if (target === "translate") { loadTranslateHistory(); loadFolderTree(); }
     if (target === "chat") pages.chat.classList.add("active");
   });
 });
@@ -727,10 +729,6 @@ function appendMessage(role, content, messageId, isTruncated, isStreaming) {
 }
 
 // ---- 知识库 ----
-document.getElementById("isolate-mode-select").addEventListener("change", function () {
-  currentIsolateMode = this.value;
-});
-
 document.getElementById("kb-folder-select").addEventListener("change", function () {
   selectFolder(this.value);
 });
@@ -936,7 +934,9 @@ async function loadKnowledgeList() {
           '</div>' +
           '<div class="version-list" style="display:none" id="vg-list-' + gidSafe + '">' +
             g.map(function (v) {
+              var vid = v.file_id.replace(/[^a-zA-Z0-9_-]/g, "");
               return '<div class="version-item">' +
+                '<input type="checkbox" class="kb-check" id="ck-' + vid + '" data-file-id="' + v.file_id + '" onchange="updateKBBatchCount()" />' +
                 '<div class="version-item-info">' +
                   '<span class="version-badge" style="opacity:' + (v.version === latest.version ? '1' : '0.6') + '">v' + v.version + '</span>' +
                   '<span class="version-item-time">' + (v.create_time || "") + '</span>' +
@@ -963,7 +963,9 @@ async function loadKnowledgeList() {
 }
 
 function renderFileItem(f) {
+  var fid = f.file_id.replace(/[^a-zA-Z0-9_-]/g, "");
   return '<div class="kb-file-item">' +
+    '<input type="checkbox" class="kb-check" id="ck-' + fid + '" data-file-id="' + f.file_id + '" onchange="updateKBBatchCount()" />' +
     '<div class="kb-file-info">' +
       '<span class="kb-file-name">' + escapeHtml(f.file_name) +
         (f.version > 1 ? ' <span class="version-badge">v' + f.version + '</span>' : '') +
@@ -971,7 +973,10 @@ function renderFileItem(f) {
       '<span class="kb-file-meta">' +
         '<span>' + formatSize(f.file_size) + '</span>' +
         '<span>' + f.total_pages + ' 块</span>' +
-        '<span class="kb-badge kb-badge-' + f.isolate_mode + '">' + f.isolate_mode + '</span>' +
+        '<span class="kb-isolate-toggle" title="点击切换隔离模式" onclick="event.stopPropagation();changeIsolate(\'' + f.file_id + '\')">' +
+          '<span class="kb-badge kb-badge-' + f.isolate_mode + '">' + f.isolate_mode + '</span>' +
+          ' ↻' +
+        '</span>' +
         (f.create_time ? '<span>' + f.create_time + '</span>' : '') +
       '</span>' +
     '</div>' +
@@ -990,7 +995,7 @@ function renderFileActions(f) {
     folderOpts += '<option value="' + fl.folder_id + '"' + sel + '>' + escapeHtml(fl.name) + '</option>';
   });
   return '<button class="btn btn-tiny" onclick="downloadDocument(\'' + f.file_id + '\')" title="下载原文件">下载</button>' +
-    '<select class="export-select" id="exp-' + f.file_id + '" onchange="exportDocument(\'' + f.file_id + '\',this.value);this.value=\'\'">' +
+    '<select class="export-select" onchange="exportDocument(\'' + f.file_id + '\',this.value);this.value=\'\'">' +
       '<option value="">导出...</option>' +
       '<option value="txt">TXT</option>' +
       '<option value="md">MD</option>' +
@@ -999,6 +1004,8 @@ function renderFileActions(f) {
     '<select class="export-select" onchange="moveFileToFolder(\'' + f.file_id + '\',this.value)">' +
       folderOpts +
     '</select>' +
+    '<button class="btn btn-tiny" onclick="playTTS(\'' + f.file_id + '\')" title="播放文档内容">🔊 TTS</button>' +
+    '<button class="btn btn-tiny btn-primary" onclick="translateDocument(\'' + f.file_id + '\',\'' + escapeHtml(f.file_name).replace(/'/g, "\\'") + '\')" title="全文翻译">翻译</button>' +
     '<button class="btn btn-tiny btn-danger" onclick="deleteKnowledge(\'' + f.file_id + '\')">删除</button>';
 }
 
@@ -1050,7 +1057,7 @@ document.getElementById("file-input").addEventListener("change", async function 
   var file = e.target.files[0];
   if (!file) return;
 
-  var isolateMode = document.getElementById("isolate-mode-select").value;
+  var isolateMode = "session";
   var folderId = document.getElementById("kb-folder-select").value;
   var formData = new FormData();
   formData.append("file", file);
@@ -1315,7 +1322,9 @@ async function loadASRArchives() {
     }
     container.innerHTML = data.data.map(function (a) {
       var aid = a.archive_id;
+      var aaid = aid.replace(/[^a-zA-Z0-9_-]/g, "");
       return '<div class="kb-item">' +
+        '<input type="checkbox" class="kb-check" id="ac-' + aaid + '" data-archive-id="' + aid + '" onchange="updateASRBatchCount()" />' +
         '<div class="kb-item-info">' +
           '<span class="kb-item-name">' + escapeHtml(a.audio_name) + '</span>' +
           '<span class="kb-item-meta">' + (a.duration || 0).toFixed(1) + 's · ' + (a.create_time || "") + '</span>' +
@@ -1651,4 +1660,365 @@ function formatSize(bytes) {
   if (bytes < 1024) return bytes + " B";
   if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + " KB";
   return (bytes / (1024 * 1024)).toFixed(1) + " MB";
+}
+
+// ---- 知识库批量操作 ----
+
+function updateKBBatchCount() {
+  var checks = document.querySelectorAll("#knowledge-list .kb-check:checked");
+  var count = checks.length;
+  document.getElementById("kb-batch-count").textContent = "已选 " + count + " 项";
+  document.getElementById("kb-check-all").checked = false;
+}
+
+function toggleAllKB(cb) {
+  var checks = document.querySelectorAll("#knowledge-list .kb-check");
+  checks.forEach(function (c) { c.checked = cb.checked; });
+  updateKBBatchCount();
+}
+
+async function changeIsolate(fileId) {
+  var modes = ["global", "session", "temp"];
+  // 获取当前模式
+  try {
+    var resp = await fetch(BACKEND_URL + "/api/v1/knowledge/list");
+    var data = await resp.json();
+    var file = (data.data || []).find(function (f) { return f.file_id === fileId; });
+    if (!file) { showToast("文档未找到", "error"); return; }
+    var curMode = file.isolate_mode;
+    var nextIdx = (modes.indexOf(curMode) + 1) % modes.length;
+    var nextMode = modes[nextIdx];
+
+    var putResp = await fetch(BACKEND_URL + "/api/v1/knowledge/files/isolate", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ file_id: fileId, isolate_mode: nextMode, session_id: currentSessionId }),
+    });
+    if (putResp.ok) {
+      showToast("隔离模式已切换为: " + nextMode, "success");
+      loadKnowledgeList();
+    } else {
+      showToast("切换失败", "error");
+    }
+  } catch (_) { showToast("操作失败", "error"); }
+}
+
+async function batchIsolate(mode) {
+  if (!mode) return;
+  var checks = document.querySelectorAll("#knowledge-list .kb-check:checked");
+  var fileIds = [];
+  checks.forEach(function (c) { fileIds.push(c.dataset.fileId); });
+  if (fileIds.length === 0) { showToast("请先选择文档", "warn"); return; }
+  try {
+    var resp = await fetch(BACKEND_URL + "/api/v1/knowledge/batch/isolate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ file_ids: fileIds, isolate_mode: mode, session_id: currentSessionId }),
+    });
+    if (resp.ok) {
+      showToast("已将 " + fileIds.length + " 个文档设为: " + mode, "success");
+      loadKnowledgeList();
+    }
+  } catch (_) { showToast("批量隔离失败", "error"); }
+}
+
+async function batchKnowledgeAction(action) {
+  var checks = document.querySelectorAll("#knowledge-list .kb-check:checked");
+  var fileIds = [];
+  checks.forEach(function (c) { fileIds.push(c.dataset.fileId); });
+  if (fileIds.length === 0) { showToast("请先选择文档", "warn"); return; }
+
+  if (action === "delete") {
+    showConfirm("批量删除", "确定要删除选中的 " + fileIds.length + " 个文档吗？此操作不可恢复。", async function () {
+      try {
+        var resp = await fetch(BACKEND_URL + "/api/v1/knowledge/batch/delete", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ file_ids: fileIds }),
+        });
+        var data = await resp.json();
+        showToast("已删除 " + (data.data ? data.data.deleted_count : 0) + " 个文档", "success");
+        loadKnowledgeList();
+      } catch (_) { showToast("批量删除失败", "error"); }
+    });
+  } else if (action === "translate") {
+    showToast("正在批量翻译 " + fileIds.length + " 个文档...", "success");
+    try {
+      var resp = await fetch(BACKEND_URL + "/api/v1/knowledge/batch/translate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ file_ids: fileIds, source_lang: "auto", target_lang: "zh" }),
+      });
+      var data = await resp.json();
+      if (data.data && data.data.results) {
+        // 存储到翻译历史
+        data.data.results.forEach(function (r) {
+          if (r.status === "ok") {
+            addTranslateHistory(r.file_id, "", r.translated_text);
+          }
+        });
+        showToast("翻译完成，点击翻译页面查看", "success");
+        // 跳转到翻译页
+        document.querySelector(".nav-item[data-page=translate]").click();
+      }
+    } catch (_) { showToast("批量翻译失败", "error"); }
+  }
+}
+
+// ---- TTS ----
+
+async function playTTS(fileId) {
+  showToast("正在生成语音...", "success");
+  try {
+    var resp = await fetch(BACKEND_URL + "/api/v1/knowledge/tts", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ file_id: fileId, language: "zh" }),
+    });
+    if (resp.ok) {
+      var blob = await resp.blob();
+      var url = URL.createObjectURL(blob);
+      var audio = new Audio(url);
+      audio.onended = function () { URL.revokeObjectURL(url); };
+      audio.play();
+      showToast("正在播放...", "success");
+    } else {
+      var errData = await resp.json();
+      showToast(errData.message || "TTS 失败", "error");
+    }
+  } catch (_) { showToast("TTS 服务不可用", "error"); }
+}
+
+// ---- 翻译 ----
+
+var translateHistory = [];
+var currentTranslateFileId = null;
+
+function addTranslateHistory(fileId, fileName, translatedText) {
+  // 去重
+  translateHistory = translateHistory.filter(function (h) { return h.file_id !== fileId; });
+  translateHistory.unshift({
+    file_id: fileId,
+    file_name: fileName,
+    translated_text: translatedText,
+    time: new Date().toISOString(),
+  });
+  // 最多保留 50 条
+  if (translateHistory.length > 50) translateHistory.pop();
+}
+
+async function translateDocument(fileId, fileName) {
+  showToast("正在翻译...", "success");
+  try {
+    var resp = await fetch(BACKEND_URL + "/api/v1/knowledge/translate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ file_id: fileId, source_lang: "auto", target_lang: "zh" }),
+    });
+    var data = await resp.json();
+    if (data.code === 100 && data.data) {
+      addTranslateHistory(fileId, fileName || data.data.file_name, data.data.translated_text);
+      currentTranslateFileId = fileId;
+      // 更新翻译视窗
+      document.getElementById("tr-source-text").textContent = data.data.original_text;
+      document.getElementById("tr-target-text").textContent = data.data.translated_text;
+      document.getElementById("tr-source-name").textContent = data.data.file_name;
+      showToast("翻译完成", "success");
+      // 跳转到翻译页
+      document.querySelector(".nav-item[data-page=translate]").click();
+      loadTranslateHistory();
+    } else {
+      showToast(data.message || "翻译失败", "error");
+    }
+  } catch (_) { showToast("翻译服务不可用", "error"); }
+}
+
+function loadTranslateHistory() {
+  var container = document.getElementById("tr-history-list");
+  if (translateHistory.length === 0) {
+    container.innerHTML = '<p class="empty-state">暂无翻译记录</p>';
+    return;
+  }
+  container.innerHTML = translateHistory.map(function (h, idx) {
+    return '<div class="tr-history-item' + (h.file_id === currentTranslateFileId ? ' active' : '') + '" onclick="loadTranslateItem(' + idx + ')">' +
+      '<span class="tr-history-name">' + escapeHtml(h.file_name || h.file_id) + '</span>' +
+      '<span class="tr-history-time">' + (h.time || "").substring(0, 16) + '</span>' +
+    '</div>';
+  }).join("");
+}
+
+function loadTranslateItem(idx) {
+  var h = translateHistory[idx];
+  if (!h) return;
+  currentTranslateFileId = h.file_id;
+  document.getElementById("tr-source-text").textContent = "";
+  document.getElementById("tr-target-text").textContent = h.translated_text;
+  document.getElementById("tr-source-name").textContent = h.file_name;
+  loadTranslateHistory();
+}
+
+function exportTranslation() {
+  if (!currentTranslateFileId) { showToast("请先选择翻译记录", "warn"); return; }
+  var h = translateHistory.find(function (x) { return x.file_id === currentTranslateFileId; });
+  if (!h) { showToast("翻译记录未找到", "error"); return; }
+
+  var format = document.getElementById("tr-export-format").value;
+  var content = h.translated_text;
+  var filename = (h.file_name || "translation") + "_zh." + format;
+  var mime = "text/plain";
+
+  if (format === "md") {
+    mime = "text/markdown";
+    content = "# " + (h.file_name || "翻译") + "\n\n" + content;
+  } else if (format === "docx") {
+    showToast("DOCX 导出请使用后端接口", "warn");
+    return;
+  }
+
+  var blob = new Blob([content], { type: mime });
+  downloadBlob(blob, filename);
+  showToast("已导出: " + filename, "success");
+}
+
+async function importTranslationToKB() {
+  if (!currentTranslateFileId) { showToast("请先选择翻译记录", "warn"); return; }
+  var h = translateHistory.find(function (x) { return x.file_id === currentTranslateFileId; });
+  if (!h) { showToast("翻译记录未找到", "error"); return; }
+
+  document.getElementById("tr-import-title").value = (h.file_name || "translation") + "_中文";
+  // 填充文件夹选择
+  var folderSelect = document.getElementById("tr-import-folder");
+  folderSelect.innerHTML = '<option value="">根目录</option>';
+  folderList.forEach(function (fl) {
+    folderSelect.innerHTML += '<option value="' + fl.folder_id + '">' + escapeHtml(fl.name) + '</option>';
+  });
+  document.getElementById("tr-import-modal").classList.remove("hidden");
+
+  // 绑定提交事件
+  var submitBtn = document.getElementById("tr-import-submit-btn");
+  var cancelBtn = document.getElementById("tr-import-cancel-btn");
+  var modal = document.getElementById("tr-import-modal");
+
+  function cleanup() {
+    submitBtn.removeEventListener("click", handler);
+    cancelBtn.removeEventListener("click", cleanup);
+  }
+
+  async function handler() {
+    submitBtn.disabled = true;
+    submitBtn.textContent = "导入中...";
+    var title = document.getElementById("tr-import-title").value.trim() || (h.file_name + "_中文");
+    var format = document.getElementById("tr-import-format").value;
+    var isolateMode = document.getElementById("tr-import-isolate").value;
+    var folderId = document.getElementById("tr-import-folder").value;
+
+    try {
+      // 先上传翻译文本为文件
+      var content = h.translated_text;
+      var ext = format === "md" ? "md" : "txt";
+      var blob = new Blob([content], { type: "text/plain" });
+      var formData = new FormData();
+      formData.append("file", blob, title + "." + ext);
+      formData.append("isolate_mode", isolateMode);
+      formData.append("session_id", currentSessionId || "");
+      if (folderId) formData.append("folder_id", folderId);
+
+      var resp = await fetch(BACKEND_URL + "/api/v1/knowledge/upload", {
+        method: "POST",
+        body: formData,
+      });
+      var data = await resp.json();
+      if (data.code === 100) {
+        showToast("翻译结果已导入知识库", "success");
+        modal.classList.add("hidden");
+        cleanup();
+      } else {
+        showToast(data.message || "导入失败", "error");
+        submitBtn.disabled = false;
+        submitBtn.textContent = "确认导入";
+      }
+    } catch (_) {
+      showToast("导入失败", "error");
+      submitBtn.disabled = false;
+      submitBtn.textContent = "确认导入";
+    }
+  }
+
+  submitBtn.addEventListener("click", handler);
+  cancelBtn.addEventListener("click", function () {
+    modal.classList.add("hidden");
+    cleanup();
+  });
+}
+
+// ---- ASR 批量操作 ----
+
+function updateASRBatchCount() {
+  var checks = document.querySelectorAll("#asr-archive-list .kb-check:checked");
+  var count = checks.length;
+  document.getElementById("asr-batch-count").textContent = "已选 " + count + " 项";
+  document.getElementById("asr-check-all").checked = false;
+}
+
+function toggleAllASR(cb) {
+  var checks = document.querySelectorAll("#asr-archive-list .kb-check");
+  checks.forEach(function (c) { c.checked = cb.checked; });
+  updateASRBatchCount();
+}
+
+function getSelectedArchiveIds() {
+  var checks = document.querySelectorAll("#asr-archive-list .kb-check:checked");
+  var ids = [];
+  checks.forEach(function (c) { ids.push(c.dataset.archiveId); });
+  return ids;
+}
+
+async function batchASR(action) {
+  var ids = getSelectedArchiveIds();
+  if (ids.length === 0) { showToast("请先选择转写记录", "warn"); return; }
+
+  if (action === "export") {
+    var format = document.getElementById("asr-batch-format").value;
+    try {
+      var resp = await fetch(BACKEND_URL + "/api/v1/asr/batch/export", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ archive_ids: ids, format: format }),
+      });
+      if (resp.ok) {
+        var blob = await resp.blob();
+        downloadBlob(blob, "asr_batch_export.zip");
+        showToast("批量导出完成", "success");
+      } else {
+        showToast("批量导出失败", "error");
+      }
+    } catch (_) { showToast("批量导出失败", "error"); }
+  } else if (action === "import-kb") {
+    var format2 = document.getElementById("asr-batch-format").value;
+    showToast("正在批量导入 " + ids.length + " 条记录...", "success");
+    try {
+      var resp2 = await fetch(BACKEND_URL + "/api/v1/asr/batch/import-to-kb", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ archive_ids: ids, format: format2, isolate_mode: "global", session_id: currentSessionId }),
+      });
+      var data2 = await resp2.json();
+      var okCount = (data2.data ? data2.data.results || [] : []).filter(function (r) { return r.status === "ok"; }).length;
+      showToast("成功导入 " + okCount + " / " + ids.length + " 条到知识库", "success");
+      loadFolderTree();
+    } catch (_) { showToast("批量导入失败", "error"); }
+  } else if (action === "delete") {
+    showConfirm("批量删除", "确定要删除选中的 " + ids.length + " 条转写记录吗？此操作不可恢复。", async function () {
+      try {
+        var resp3 = await fetch(BACKEND_URL + "/api/v1/asr/batch/delete", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ archive_ids: ids }),
+        });
+        var data3 = await resp3.json();
+        showToast("已删除 " + (data3.data ? data3.data.deleted_count : 0) + " 条记录", "success");
+        loadASRArchives();
+      } catch (_) { showToast("批量删除失败", "error"); }
+    });
+  }
 }

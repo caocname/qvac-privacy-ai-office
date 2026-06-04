@@ -519,3 +519,155 @@ async def export_transcription(req: ASRExportRequest):
         tmp.write(text)
         tmp.close()
         return FileResponse(path=tmp.name, filename=f"{base_name}.txt", media_type="text/plain")
+
+
+# ---- 批量操作 ----
+
+class ASRBatchDeleteRequest(BaseModel):
+    archive_ids: list[str] = Field(..., description="要删除的 ASR 归档 ID 列表")
+
+
+@router.post("/batch/delete")
+async def batch_delete_asr(req: ASRBatchDeleteRequest):
+    """批量删除 ASR 归档记录。"""
+    db = DatabaseManager.get_instance()
+    deleted = []
+    for archive_id in req.archive_ids:
+        row = db.conn.execute(
+            "SELECT audio_path FROM asr_archive WHERE archive_id = ?",
+            (archive_id,),
+        ).fetchone()
+        if not row:
+            continue
+        cipher = db.cipher
+        enc_path = row[0]
+        try:
+            actual = cipher.decrypt(enc_path) if cipher else enc_path
+        except Exception:
+            actual = enc_path
+
+        def _erase(p):
+            try:
+                os.remove(p)
+            except OSError:
+                pass
+
+        ThreadPoolExecutor(max_workers=1).submit(_erase, actual)
+        db.conn.execute("DELETE FROM asr_archive WHERE archive_id = ?", (archive_id,))
+        deleted.append(archive_id)
+
+    db.conn.commit()
+    get_audit_logger().log(LogType.SYSTEM, {
+        "event": "asr_batch_delete",
+        "count": len(deleted),
+    })
+    return {
+        "code": StateCode.IDLE.value,
+        "status": StateCode.IDLE.name,
+        "data": {"deleted_count": len(deleted)},
+    }
+
+
+class ASRBatchImportRequest(BaseModel):
+    archive_ids: list[str] = Field(..., description="ASR 归档 ID 列表")
+    format: str = Field(default="txt", description="导入格式: txt | md")
+    isolate_mode: str = Field(default="global", description="隔离模式")
+    session_id: str | None = Field(default=None)
+    folder_id: str | None = Field(default=None)
+
+
+@router.post("/batch/import-to-kb")
+async def batch_import_to_kb(req: ASRBatchImportRequest):
+    """批量将 ASR 转写结果导入知识库。"""
+    results = []
+    for archive_id in req.archive_ids:
+        try:
+            import_req = ASRImportKBRequest(
+                archive_id=archive_id,
+                format=req.format,
+                isolate_mode=req.isolate_mode,
+                session_id=req.session_id,
+                folder_id=req.folder_id,
+            )
+            result = await import_to_knowledge_base(import_req)
+            results.append({
+                "archive_id": archive_id,
+                "status": "ok" if result.get("code") == 100 else "error",
+                "file_id": result.get("data", {}).get("file_id") if result.get("data") else None,
+                "message": result.get("message", ""),
+            })
+        except Exception as exc:
+            results.append({"archive_id": archive_id, "status": "error", "message": str(exc)[:200]})
+
+    return {
+        "code": StateCode.IDLE.value,
+        "status": StateCode.IDLE.name,
+        "data": {"results": results},
+    }
+
+
+class ASRBatchExportRequest(BaseModel):
+    archive_ids: list[str] = Field(..., description="ASR 归档 ID 列表")
+    format: str = Field(default="txt", description="导出格式: txt | md | docx")
+
+
+@router.post("/batch/export")
+async def batch_export_asr(req: ASRBatchExportRequest):
+    """批量导出 ASR 转写结果 — 打包为 ZIP。"""
+    import tempfile
+    import zipfile
+    from fastapi.responses import FileResponse as FR
+
+    db = DatabaseManager.get_instance()
+    cipher = db.cipher
+    tmp_dir = tempfile.mkdtemp()
+    exported = 0
+
+    for archive_id in req.archive_ids:
+        row = db.conn.execute(
+            "SELECT audio_name, transcribed_text FROM asr_archive WHERE archive_id = ?",
+            (archive_id,),
+        ).fetchone()
+        if not row:
+            continue
+        audio_name, enc_text = row
+        text = cipher.decrypt(enc_text) if cipher else enc_text
+        base_name = Path(audio_name).stem
+        fmt = req.format.lower()
+
+        if fmt == "md":
+            from backend.api.knowledge import _convert_to_md
+            content = _convert_to_md(text, base_name)
+            ext = "md"
+        elif fmt == "docx":
+            from backend.api.knowledge import _convert_to_docx
+            content_bytes = _convert_to_docx(text, base_name)
+            fpath = os.path.join(tmp_dir, f"{base_name}.docx")
+            with open(fpath, "wb") as f:
+                f.write(content_bytes)
+            exported += 1
+            continue
+        else:
+            content = text
+            ext = "txt"
+
+        fpath = os.path.join(tmp_dir, f"{base_name}.{ext}")
+        with open(fpath, "w", encoding="utf-8") as f:
+            f.write(content)
+        exported += 1
+
+    if exported == 0:
+        return {
+            "code": StateCode.ERROR.value,
+            "status": StateCode.ERROR.name,
+            "message": "没有找到有效的归档记录",
+        }
+
+    zip_path = os.path.join(tmp_dir, "asr_export.zip")
+    with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
+        for fname in os.listdir(tmp_dir):
+            fpath = os.path.join(tmp_dir, fname)
+            if fname != "asr_export.zip":
+                zf.write(fpath, fname)
+
+    return FR(path=zip_path, filename="asr_batch_export.zip", media_type="application/zip")

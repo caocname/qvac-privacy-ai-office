@@ -752,3 +752,339 @@ async def export_document(req: ExportRequest):
         tmp.write(full_text)
         tmp.close()
         return FileResponse(path=tmp.name, filename=download_name, media_type="text/plain")
+
+
+# ---- 单文件隔离模式切换 ----
+
+class ChangeIsolateRequest(BaseModel):
+    file_id: str = Field(..., description="文档 ID")
+    isolate_mode: str = Field(..., description="新隔离模式: global | session | temp")
+    session_id: str | None = Field(default=None)
+
+
+@router.put("/files/isolate")
+async def change_isolate_mode(req: ChangeIsolateRequest):
+    """修改单个文档的隔离模式。"""
+    db = DatabaseManager.get_instance()
+    row = db.conn.execute(
+        "SELECT file_id FROM knowledge_base WHERE file_id = ? AND is_deleted = 0",
+        (req.file_id,),
+    ).fetchone()
+    if not row:
+        return {
+            "code": StateCode.ERROR.value,
+            "status": StateCode.ERROR.name,
+            "message": "文档不存在或已删除",
+        }
+    if req.isolate_mode not in ("global", "session", "temp"):
+        return {
+            "code": StateCode.ERROR.value,
+            "status": StateCode.ERROR.name,
+            "message": "无效的隔离模式，仅支持 global / session / temp",
+        }
+
+    db.conn.execute(
+        "UPDATE knowledge_base SET isolate_mode = ?, session_id = ? WHERE file_id = ?",
+        (req.isolate_mode, req.session_id, req.file_id),
+    )
+    db.conn.commit()
+
+    get_audit_logger().log(LogType.SYSTEM, {
+        "event": "isolate_changed",
+        "file_id": req.file_id,
+        "new_mode": req.isolate_mode,
+    })
+    return {
+        "code": StateCode.IDLE.value,
+        "status": StateCode.IDLE.name,
+        "data": {"file_id": req.file_id, "isolate_mode": req.isolate_mode},
+    }
+
+
+# ---- 批量操作 ----
+
+class BatchDeleteRequest(BaseModel):
+    file_ids: list[str] = Field(..., description="要删除的文档 ID 列表")
+
+
+@router.post("/batch/delete")
+async def batch_delete(req: BatchDeleteRequest):
+    """批量删除文档。"""
+    db = DatabaseManager.get_instance()
+    deleted = []
+    for file_id in req.file_ids:
+        row = db.conn.execute(
+            "SELECT file_path FROM knowledge_base WHERE file_id = ? AND is_deleted = 0",
+            (file_id,),
+        ).fetchone()
+        if not row:
+            continue
+        db.conn.execute("UPDATE knowledge_base SET is_deleted = 1 WHERE file_id = ?", (file_id,))
+        db.conn.execute("DELETE FROM rag_chunks WHERE file_id = ?", (file_id,))
+        cipher = db.cipher
+        enc_path = row[0]
+        try:
+            actual = cipher.decrypt(enc_path) if cipher else enc_path
+        except Exception:
+            actual = enc_path
+
+        def _erase(p):
+            try:
+                os.remove(p)
+            except OSError:
+                pass
+
+        from concurrent.futures import ThreadPoolExecutor
+        ThreadPoolExecutor(max_workers=1).submit(_erase, actual)
+        deleted.append(file_id)
+
+    db.conn.commit()
+
+    get_audit_logger().log(LogType.KNOWLEDGE_DELETE, {
+        "event": "batch_delete",
+        "count": len(deleted),
+        "file_ids": deleted,
+    })
+    return {
+        "code": StateCode.IDLE.value,
+        "status": StateCode.IDLE.name,
+        "data": {"deleted_count": len(deleted), "deleted_ids": deleted},
+    }
+
+
+class BatchIsolateRequest(BaseModel):
+    file_ids: list[str] = Field(..., description="文档 ID 列表")
+    isolate_mode: str = Field(..., description="隔离模式: global | session | temp")
+    session_id: str | None = Field(default=None)
+
+
+@router.post("/batch/isolate")
+async def batch_isolate(req: BatchIsolateRequest):
+    """批量修改文档隔离模式。"""
+    if req.isolate_mode not in ("global", "session", "temp"):
+        return {
+            "code": StateCode.ERROR.value,
+            "status": StateCode.ERROR.name,
+            "message": "无效的隔离模式",
+        }
+    db = DatabaseManager.get_instance()
+    updated = []
+    for file_id in req.file_ids:
+        row = db.conn.execute(
+            "SELECT file_id FROM knowledge_base WHERE file_id = ? AND is_deleted = 0",
+            (file_id,),
+        ).fetchone()
+        if not row:
+            continue
+        db.conn.execute(
+            "UPDATE knowledge_base SET isolate_mode = ?, session_id = ? WHERE file_id = ?",
+            (req.isolate_mode, req.session_id, file_id),
+        )
+        updated.append(file_id)
+
+    db.conn.commit()
+    get_audit_logger().log(LogType.SYSTEM, {
+        "event": "batch_isolate",
+        "count": len(updated),
+        "new_mode": req.isolate_mode,
+    })
+    return {
+        "code": StateCode.IDLE.value,
+        "status": StateCode.IDLE.name,
+        "data": {"updated_count": len(updated), "isolate_mode": req.isolate_mode},
+    }
+
+
+# ---- 翻译 ----
+
+class TranslateRequest(BaseModel):
+    file_id: str = Field(..., description="文档 ID")
+    source_lang: str = Field(default="auto", description="源语言")
+    target_lang: str = Field(default="zh", description="目标语言")
+
+
+@router.post("/translate")
+async def translate_document(req: TranslateRequest):
+    """翻译文档全文，通过 Bridge LLM 执行。"""
+    import httpx
+
+    db = DatabaseManager.get_instance()
+    row = db.conn.execute(
+        "SELECT file_name FROM knowledge_base WHERE file_id = ? AND is_deleted = 0",
+        (req.file_id,),
+    ).fetchone()
+    if not row:
+        return {
+            "code": StateCode.ERROR.value,
+            "status": StateCode.ERROR.name,
+            "message": "文档不存在或已删除",
+        }
+
+    # 获取全文
+    chunks = db.conn.execute(
+        "SELECT content FROM rag_chunks WHERE file_id = ? ORDER BY chunk_index",
+        (req.file_id,),
+    ).fetchall()
+    if not chunks:
+        return {
+            "code": StateCode.ERROR.value,
+            "status": StateCode.ERROR.name,
+            "message": "文档内容为空",
+        }
+
+    full_text = "\n\n".join(c[0] for c in chunks)
+    file_name = row[0]
+
+    # 按 ~2000 字符分段翻译（避免超出 LLM 上下文）
+    part_size = 2000
+    parts = [full_text[i:i + part_size] for i in range(0, len(full_text), part_size)]
+
+    translated_parts = []
+    async with httpx.AsyncClient(timeout=300.0) as client:
+        for i, part in enumerate(parts):
+            try:
+                resp = await client.post(
+                    "http://127.0.0.1:18889/api/translate",
+                    json={
+                        "text": part,
+                        "source_lang": req.source_lang,
+                        "target_lang": req.target_lang,
+                    },
+                )
+                if resp.status_code == 200:
+                    translated_parts.append(resp.json().get("translated_text", ""))
+                else:
+                    translated_parts.append(f"[翻译失败] {part[:100]}...")
+            except Exception as exc:
+                translated_parts.append(f"[翻译异常: {str(exc)[:100]}]")
+
+    translated_text = "\n\n".join(translated_parts)
+
+    get_audit_logger().log(LogType.SYSTEM, {
+        "event": "document_translated",
+        "file_id": req.file_id,
+        "file_name": file_name,
+        "source_lang": req.source_lang,
+        "target_lang": req.target_lang,
+        "char_count": len(translated_text),
+    })
+
+    return {
+        "code": StateCode.IDLE.value,
+        "status": StateCode.IDLE.name,
+        "data": {
+            "file_id": req.file_id,
+            "file_name": file_name,
+            "original_text": full_text,
+            "translated_text": translated_text,
+            "source_lang": req.source_lang,
+            "target_lang": req.target_lang,
+        },
+    }
+
+
+class BatchTranslateRequest(BaseModel):
+    file_ids: list[str] = Field(..., description="文档 ID 列表")
+    source_lang: str = Field(default="auto")
+    target_lang: str = Field(default="zh")
+
+
+@router.post("/batch/translate")
+async def batch_translate(req: BatchTranslateRequest):
+    """批量翻译文档 — 异步并发执行。"""
+    import asyncio
+
+    async def _translate_one(file_id: str) -> dict:
+        try:
+            tr = TranslateRequest(
+                file_id=file_id,
+                source_lang=req.source_lang,
+                target_lang=req.target_lang,
+            )
+            result = await translate_document(tr)
+            if result.get("code") == 100:
+                return {"file_id": file_id, "status": "ok", "translated_text": result["data"]["translated_text"]}
+            return {"file_id": file_id, "status": "error", "message": result.get("message", "")}
+        except Exception as exc:
+            return {"file_id": file_id, "status": "error", "message": str(exc)[:200]}
+
+    tasks = [_translate_one(fid) for fid in req.file_ids]
+    results = await asyncio.gather(*tasks)
+
+    return {
+        "code": StateCode.IDLE.value,
+        "status": StateCode.IDLE.name,
+        "data": {"results": results},
+    }
+
+
+# ---- TTS 代理 ----
+
+class TTSRequest(BaseModel):
+    file_id: str = Field(..., description="文档 ID")
+    language: str = Field(default="zh")
+
+
+@router.post("/tts")
+async def tts_document(req: TTSRequest):
+    """获取文档内容的 TTS 音频 — 代理到 Bridge。
+
+    返回 WAV 音频流或错误提示。
+    """
+    import httpx
+    from fastapi.responses import StreamingResponse
+
+    db = DatabaseManager.get_instance()
+    row = db.conn.execute(
+        "SELECT file_name FROM knowledge_base WHERE file_id = ? AND is_deleted = 0",
+        (req.file_id,),
+    ).fetchone()
+    if not row:
+        return {
+            "code": StateCode.ERROR.value,
+            "status": StateCode.ERROR.name,
+            "message": "文档不存在或已删除",
+        }
+
+    # 获取全文
+    chunks = db.conn.execute(
+        "SELECT content FROM rag_chunks WHERE file_id = ? ORDER BY chunk_index",
+        (req.file_id,),
+    ).fetchall()
+    full_text = "\n\n".join(c[0] for c in chunks) if chunks else ""
+    if not full_text.strip():
+        return {
+            "code": StateCode.ERROR.value,
+            "status": StateCode.ERROR.name,
+            "message": "文档内容为空",
+        }
+
+    # 限制长度（TTS 处理长文本很慢，取前 5000 字符）
+    tts_text = full_text[:5000]
+
+    try:
+        async with httpx.AsyncClient(timeout=120.0) as client:
+            resp = await client.post(
+                "http://127.0.0.1:18889/api/tts/speak",
+                json={"text": tts_text, "language": req.language},
+            )
+            if resp.status_code == 200:
+                audio_data = resp.content
+                return StreamingResponse(
+                    iter([audio_data]),
+                    media_type="audio/wav",
+                    headers={"Content-Disposition": f"attachment; filename={row[0]}.wav"},
+                )
+            else:
+                detail = resp.json() if resp.headers.get("content-type") == "application/json" else {}
+                return {
+                    "code": StateCode.ERROR.value,
+                    "status": StateCode.ERROR.name,
+                    "message": f"TTS 失败: {detail.get('error', resp.text)[:200]}",
+                }
+    except Exception as exc:
+        return {
+            "code": StateCode.ERROR.value,
+            "status": StateCode.ERROR.name,
+            "message": f"TTS 服务不可用: {str(exc)[:200]}",
+        }
