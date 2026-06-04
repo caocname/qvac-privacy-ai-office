@@ -75,41 +75,45 @@ async def lifespan(app: FastAPI):
 
     logger.log(LogType.SYSTEM, {"event": "kill_switch_started"})
 
-    # ---- 自动加载模型到 Bridge ----
+    # ---- 后台异步加载模型（不阻塞 HTTP 服务启动） ----
     from backend.services.llm_service import get_llm_service
     import asyncio
 
     llm_svc = get_llm_service()
 
-    bridge_available = False
-    for i in range(10):
-        if await llm_svc.health():
-            logger.log(LogType.SYSTEM, {"event": "bridge_health_ok", "retry": i})
-            bridge_available = True
-            break
-        await asyncio.sleep(1.0)
+    async def background_load_models():
+        # 等待 Bridge HTTP 就绪
+        for i in range(30):
+            if await llm_svc.ping():
+                logger.log(LogType.SYSTEM, {"event": "bridge_ping_ok", "retry": i})
+                break
+            await asyncio.sleep(1.0)
+        else:
+            logger.log(LogType.ERROR, {
+                "event": "bridge_ping_timeout",
+                "message": "Bridge 服务 30s 内未就绪，后台加载已取消。请先启动 Bridge: cd bridge && node index.js",
+            })
+            return
 
-    if bridge_available:
+        # 加载 LLM
         if await llm_svc.load_model():
             logger.log(LogType.SYSTEM, {"event": "llm_model_loaded"})
         else:
             logger.log(LogType.ERROR, {
                 "event": "llm_model_load_failed",
-                "message": "LLM 模型加载失败，请检查模型文件是否存在于 data/models/",
+                "message": "LLM 模型加载失败",
             })
 
+        # 加载 Embedding
         if await llm_svc.load_embed_model():
             logger.log(LogType.SYSTEM, {"event": "embed_model_loaded"})
         else:
             logger.log(LogType.ERROR, {
                 "event": "embed_model_load_failed",
-                "message": "Embedding 模型加载失败，请检查模型文件是否存在于 data/models/",
+                "message": "Embedding 模型加载失败",
             })
-    else:
-        logger.log(LogType.ERROR, {
-            "event": "bridge_health_timeout",
-            "message": "Bridge 服务 10s 内未就绪，跳过模型加载。请先启动 Bridge: cd bridge && node index.js",
-        })
+
+    asyncio.create_task(background_load_models())
 
     _sampler = ResourceSampler(interval_s=1.0)
     _sampler.start()
@@ -162,7 +166,15 @@ atexit.register(lambda: get_audit_logger().shutdown())
 
 @app.get("/health")
 async def health():
-    return {"status": "ok"}
+    from backend.services.llm_service import get_llm_service
+    llm = get_llm_service()
+    return {
+        "status": "ok",
+        "models": {
+            "llm_loaded": llm.is_llm_loaded,
+            "embed_loaded": llm.is_embed_loaded,
+        },
+    }
 
 
 if __name__ == "__main__":

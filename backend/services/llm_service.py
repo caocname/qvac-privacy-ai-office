@@ -27,12 +27,30 @@ class LLMService:
 
     def __init__(self):
         self._bridge_url = BRIDGE_URL
+        self.is_llm_loaded = False
+        self.is_embed_loaded = False
 
-    async def health(self) -> bool:
+    async def ping(self) -> bool:
+        """仅检查 Bridge HTTP 服务是否可达（不要求模型已加载）。"""
         try:
             async with httpx.AsyncClient() as client:
                 resp = await client.get(f"{self._bridge_url}/health", timeout=2.0)
                 return resp.status_code == 200
+        except Exception:
+            return False
+
+    async def health(self) -> bool:
+        """检查 Bridge 模型是否已全部加载就绪。"""
+        try:
+            async with httpx.AsyncClient() as client:
+                resp = await client.get(f"{self._bridge_url}/health", timeout=2.0)
+                if resp.status_code != 200:
+                    return False
+                data = resp.json()
+                models = data.get("models", {})
+                self.is_llm_loaded = models.get("llm_loaded", False)
+                self.is_embed_loaded = models.get("embed_loaded", False)
+                return self.is_llm_loaded and self.is_embed_loaded
         except Exception:
             return False
 
@@ -42,9 +60,11 @@ class LLMService:
                 resp = await client.post(
                     f"{self._bridge_url}/api/llm/load",
                     json={"model_name": model_name or "Llama-3.2-1B-Instruct-Q4_0.gguf"},
-                    timeout=30.0,
+                    timeout=120.0,
                 )
-                return resp.status_code == 200
+                ok = resp.status_code == 200
+                self.is_llm_loaded = ok
+                return ok
         except Exception:
             return False
 
@@ -54,9 +74,11 @@ class LLMService:
                 resp = await client.post(
                     f"{self._bridge_url}/api/embed/load",
                     json={"model_name": model_name or "gte-large_fp16.gguf"},
-                    timeout=30.0,
+                    timeout=120.0,
                 )
-                return resp.status_code == 200
+                ok = resp.status_code == 200
+                self.is_embed_loaded = ok
+                return ok
         except Exception:
             return False
 
@@ -126,22 +148,30 @@ class LLMService:
                     },
                 ) as resp:
                     full_text = ""
+                    has_data = False
                     async for line in resp.aiter_lines():
                         if not line.startswith("data: "):
                             continue
+                        has_data = True
                         try:
                             chunk = json.loads(line[6:])
                         except json.JSONDecodeError:
                             continue
 
                         if chunk.get("done"):
+                            if "error" in chunk:
+                                logger.log(LogType.ERROR, {"error": chunk["error"]})
+                                yield {"done": True, "error": chunk["error"]}
+                                return
                             stats = chunk.get("stats", {})
+                            # 兜底：若 SSE 流中 full_text 为空但之前累积了 token，使用累积文本
+                            final_text = chunk.get("full_text", "") or full_text
                             logger.log(LogType.INFERENCE_END, {
                                 InferenceMetric.TOKENS_PER_SECOND: stats.get("tokens_per_second", 0),
                                 InferenceMetric.TOTAL_DURATION_MS: stats.get("total_duration_ms", 0),
                                 InferenceMetric.COMPLETION_TOKENS: stats.get("total_tokens", 0),
                             })
-                            yield {"done": True, "full_text": full_text, "stats": stats}
+                            yield {"done": True, "full_text": final_text, "stats": stats, "_debug": chunk.get("_debug")}
                             return
 
                         if "error" in chunk:
@@ -153,6 +183,9 @@ class LLMService:
                         if token:
                             full_text += token
                             yield {"token": token}
+
+                    if not has_data:
+                        yield {"done": True, "error": "Bridge 无响应"}
 
         except Exception as exc:
             logger.log(LogType.ERROR, {"error_class": type(exc).__name__, "message": str(exc)})

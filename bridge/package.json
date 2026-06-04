@@ -10,9 +10,6 @@
     "dev": "node --watch index.js"
   },
   "dependencies": {
-    "@qvac/dl-filesystem": "*",
-    "@qvac/embed-llamacpp": "^0.17.0",
-    "@qvac/llm-llamacpp": "^0.22.0",
-    "cmake-bare": "^1.8.0"
+    "@qvac/sdk": "^0.10.2"
   }
 }
