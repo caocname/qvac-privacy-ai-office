@@ -210,10 +210,10 @@ async def send_message(req: ChatRequest):
             ):
                 if chunk.get("done"):
                     if "error" in chunk:
-                        err_payload = json.dumps({"error": chunk["error"]})
+                        err_payload = json.dumps({"done": True, "error": chunk["error"]})
                         yield f"data: {err_payload}\n\n"
                     else:
-                        full_response = chunk.get("full_text", full_response)
+                        full_response = chunk.get("full_text") or full_response
                         stats = chunk.get("stats", {})
                         # 保存助手回复
                         assistant_msg_id = SessionManager.append_message(
@@ -227,6 +227,7 @@ async def send_message(req: ChatRequest):
                             "memory_truncated": assembly.memory_truncated,
                             "truncated_message_ids": assembly.truncated_message_ids,
                             "stats": stats,
+                            "_debug": chunk.get("_debug"),
                         })
                         yield f"data: {done_payload}\n\n"
                         logger.log(LogType.INFERENCE_SAMPLE, {
@@ -244,7 +245,7 @@ async def send_message(req: ChatRequest):
                 "session_id": req.session_id,
                 "error_class": type(exc).__name__,
             }, str(exc))
-            err_payload = json.dumps({"error": str(exc)})
+            err_payload = json.dumps({"done": True, "error": str(exc)})
             yield f"data: {err_payload}\n\n"
         finally:
             state_mgr.transition(StateCode.IDLE)

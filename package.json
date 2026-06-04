@@ -1,0 +1,6 @@
+{
+  "dependencies": {
+    "@qvac/embed-llamacpp": "^0.17.0",
+    "@qvac/llm-llamacpp": "^0.22.1"
+  }
+}

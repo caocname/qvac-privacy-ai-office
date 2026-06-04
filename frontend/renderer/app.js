@@ -249,10 +249,17 @@ async function createNewSession() {
 }
 
 document.getElementById("new-session-btn").addEventListener("click", async function () {
+  // 切换到聊天页面
+  document.querySelectorAll(".nav-item").forEach(function (n) { n.classList.remove("active"); });
+  var chatNav = document.querySelector('.nav-item[data-page="chat"]');
+  if (chatNav) chatNav.classList.add("active");
+  Object.values(pages).forEach(function (p) { if (p) p.classList.remove("active"); });
+  if (pages.chat) pages.chat.classList.add("active");
+
   if (currentSessionId) {
     // 切换前清理 Temp
     try {
-      await fetch(BACKEND_URL + "/api/v1/chat/session/switch?from_session_id=" + currentSessionId + "&to_session_id=new");
+      await fetch(BACKEND_URL + "/api/v1/chat/session/switch?from_session_id=" + currentSessionId + "&to_session_id=new", { method: "POST" });
     } catch (_) {}
   }
   await createNewSession();
@@ -404,13 +411,17 @@ async function sendMessage() {
         if (line.indexOf("data: ") !== 0) continue;
         try {
           var chunk = JSON.parse(line.slice(6));
+          if (chunk.error) {
+            contentEl.textContent = "[错误] " + chunk.error;
+            contentEl.classList.remove("streaming");
+            break;
+          }
           if (chunk.done) {
-            if (chunk.error) {
-              contentEl.textContent = "[错误] " + chunk.error;
-            } else {
-              fullText = chunk.full_text || fullText;
-              contentEl.textContent = fullText;
+            if (chunk._debug) {
+              console.log("[QVAC Debug]", JSON.stringify(chunk._debug));
             }
+            fullText = chunk.full_text || fullText;
+            contentEl.textContent = fullText;
             if (chunk.memory_truncated) {
               var tag = document.createElement("span");
               tag.className = "truncation-tag";
