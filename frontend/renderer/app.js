@@ -11,6 +11,7 @@ let currentIsolateMode = "session";
 let currentStreaming = false;
 let audioCtx = null;
 let asrPollTimer = null;
+let selectedDocIds = [];  // 当前选中的知识库文档 ID 列表
 
 // ---- DOM 引用 ----
 const statusBadge = document.getElementById("status-badge");
@@ -229,6 +230,93 @@ credSubmit.addEventListener("click", async function () {
 
 credCancel.addEventListener("click", function () { credModal.classList.add("hidden"); });
 
+// ---- 文档上下文选择器 ----
+var docInfoMap = {};
+
+function toggleDocsDropdown(e) {
+  if (e) e.stopPropagation();
+  var dd = document.getElementById("chat-docs-dropdown");
+  if (!dd) return;
+  if (dd.style.display === "none" || dd.style.display === "") {
+    loadDocSelectorList();
+    dd.style.display = "flex";
+  } else {
+    dd.style.display = "none";
+  }
+}
+
+function closeDocsDropdown(e) {
+  if (e) e.stopPropagation();
+  var dd = document.getElementById("chat-docs-dropdown");
+  if (dd) dd.style.display = "none";
+}
+
+function onDocItemClick(fileId) {
+  var idx = selectedDocIds.indexOf(fileId);
+  if (idx !== -1) { selectedDocIds.splice(idx, 1); }
+  else { selectedDocIds.push(fileId); }
+  renderDocTags();
+  var dd = document.getElementById("chat-docs-dropdown");
+  if (dd) dd.style.display = "none";
+}
+
+function removeDocTag(fileId) {
+  selectedDocIds = selectedDocIds.filter(function (id) { return id !== fileId; });
+  renderDocTags();
+}
+
+document.addEventListener("click", function (e) {
+  var dd = document.getElementById("chat-docs-dropdown");
+  if (!dd || dd.style.display === "none") return;
+  var toggle = document.getElementById("chat-docs-toggle");
+  if ((toggle && toggle.contains(e.target)) || dd.contains(e.target)) return;
+  dd.style.display = "none";
+});
+
+function loadDocSelectorList() {
+  var list = document.getElementById("chat-docs-dropdown-list");
+  if (!list) return;
+  fetch(BACKEND_URL + "/api/v1/knowledge/list")
+    .then(function (r) { return r.json(); })
+    .then(function (data) {
+      if (!data.data || data.data.length === 0) {
+        list.innerHTML = '<div style="color:var(--text-secondary);padding:8px 12px;font-size:12px">暂无文档，请先上传</div>';
+        return;
+      }
+      docInfoMap = {};
+      data.data.forEach(function (doc) {
+        docInfoMap[doc.file_id] = { name: doc.file_name, pages: doc.total_pages };
+      });
+      list.innerHTML = data.data.map(function (doc) {
+        var sel = selectedDocIds.indexOf(doc.file_id) !== -1;
+        return '<div class="chat-docs-dropdown-item' + (sel ? " selected" : "") +
+          '" onclick="event.stopPropagation();onDocItemClick(\'' + doc.file_id + '\')">' +
+          (sel ? "✓ " : "") + escapeHtml(doc.file_name) +
+          '<span style="color:var(--text-secondary);font-size:10px;margin-left:auto">' + (doc.total_pages || 0) + ' 块</span></div>';
+      }).join("");
+    })
+    .catch(function () {
+      list.innerHTML = '<div style="color:var(--error);padding:8px 12px;font-size:12px">加载失败</div>';
+    });
+}
+
+function renderDocTags() {
+  var tags = document.getElementById("chat-docs-tags");
+  if (!tags) return;
+  if (selectedDocIds.length === 0) {
+    tags.innerHTML = '<span style="color:var(--text-secondary);font-size:11px">未选择文档</span>';
+    return;
+  }
+  tags.innerHTML = selectedDocIds.map(function (id) {
+    var info = docInfoMap[id];
+    var name = info ? info.name : id.substring(0, 20) + "...";
+    return '<span class="chat-docs-tag">' + escapeHtml(name) +
+      '<span class="chat-docs-tag-remove" onclick="event.stopPropagation();removeDocTag(\'' + id + '\')">x</span></span>';
+  }).join("");
+}
+
+renderDocTags();
+
 // ---- 会话管理 ----
 async function initSession() {
   try {
@@ -253,7 +341,12 @@ async function createNewSession() {
     });
     var data = await resp.json();
     currentSessionId = data.data.session_id;
-    renderSessionList([data.data]);
+    // 获取完整会话列表，避免历史会话被隐藏
+    var listResp = await fetch(BACKEND_URL + "/api/v1/chat/sessions");
+    var listData = await listResp.json();
+    if (listData.data && listData.data.length > 0) {
+      renderSessionList(listData.data);
+    }
   } catch (_) {}
 }
 
@@ -271,6 +364,9 @@ document.getElementById("new-session-btn").addEventListener("click", async funct
       await fetch(BACKEND_URL + "/api/v1/chat/session/switch?from_session_id=" + currentSessionId + "&to_session_id=new", { method: "POST" });
     } catch (_) {}
   }
+  // 清空文档选择
+  selectedDocIds = [];
+  renderDocTags();
   await createNewSession();
   chatMessages.innerHTML = '<div class="chat-placeholder"><div class="placeholder-icon"><svg viewBox="0 0 24 24" width="48" height="48"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" fill="currentColor" opacity="0.3"/></svg></div><p>开始离线隐私对话</p><p class="sub-text">所有推理 100% 本地运行，数据零外泄</p></div>';
 });
@@ -446,6 +542,7 @@ async function sendMessage() {
         message: text,
         enable_rag: true,
         isolate_mode: currentIsolateMode,
+        context_document_ids: selectedDocIds,
       }),
     });
 
@@ -629,7 +726,7 @@ document.getElementById("isolate-mode-select").addEventListener("change", functi
 async function loadKnowledgeList() {
   var container = document.getElementById("knowledge-list");
   try {
-    var resp = await fetch(BACKEND_URL + "/api/v1/knowledge/list?session_id=" + (currentSessionId || ""));
+    var resp = await fetch(BACKEND_URL + "/api/v1/knowledge/list");
     var data = await resp.json();
     if (!data.data || data.data.length === 0) {
       container.innerHTML = '<p class="empty-state">尚未上传任何文档</p>';
@@ -677,7 +774,38 @@ document.getElementById("file-input").addEventListener("change", async function 
     });
     var data = await resp.json();
     if (data.code === 100) {
-      showToast("文档上传成功", "success");
+      var fileId = data.data ? data.data.file_id : null;
+      var docName = file.name.replace(/\.[^.]+$/, "");
+      showToast("文档上传成功，正在创建文档会话...", "success");
+
+      // 自动创建同名会话 + 加载文档全文到上下文
+      if (fileId) {
+        try {
+          var sessResp = await fetch(BACKEND_URL + "/api/v1/chat/session", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ api_version: "v1", title: docName }),
+          });
+          var sessData = await sessResp.json();
+          if (sessData.data) {
+            currentSessionId = sessData.data.session_id;
+            selectedDocIds = [fileId];
+            renderDocTags();
+            // 刷新会话列表
+            var listResp = await fetch(BACKEND_URL + "/api/v1/chat/sessions");
+            var listData = await listResp.json();
+            if (listData.data) renderSessionList(listData.data);
+            // 切换到对话页
+            document.querySelectorAll(".nav-item").forEach(function (n) { n.classList.remove("active"); });
+            var chatNav = document.querySelector('.nav-item[data-page="chat"]');
+            if (chatNav) chatNav.classList.add("active");
+            Object.values(pages).forEach(function (p) { if (p) p.classList.remove("active"); });
+            if (pages.chat) pages.chat.classList.add("active");
+            chatMessages.innerHTML = '<div class="chat-placeholder"><div class="placeholder-icon"><svg viewBox="0 0 24 24" width="48" height="48"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" fill="currentColor" opacity="0.3"/></svg></div><p>已加载文档: ' + escapeHtml(docName) + '</p><p class="sub-text">文档全文已注入 AI 上下文，可直接提问</p></div>';
+            showToast("已创建会话「" + docName + "」并加载文档", "success");
+          }
+        } catch (_) {}
+      }
       loadKnowledgeList();
     } else {
       showToast(data.message || "上传失败", "error");

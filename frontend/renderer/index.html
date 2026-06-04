@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src http://127.0.0.1:18888; style-src 'self' 'unsafe-inline'; script-src 'self'" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src http://127.0.0.1:18888; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'" />
   <title>QVAC Hackathon 离线 AI 办公助手</title>
   <link rel="stylesheet" href="styles/main.css" />
 </head>
@@ -91,6 +91,21 @@
               <p>开始离线隐私对话</p>
               <p class="sub-text">所有推理 100% 本地运行，数据零外泄</p>
             </div>
+          </div>
+          <!-- 文档上下文选择器 -->
+          <div class="chat-docs-bar" id="chat-docs-bar">
+            <span class="chat-docs-label">上下文文档:</span>
+            <div class="chat-docs-selector">
+              <button id="chat-docs-toggle" class="btn btn-tiny" onclick="toggleDocsDropdown(event)">选择文档</button>
+              <div id="chat-docs-dropdown" class="chat-docs-dropdown" style="display:none">
+                <div class="chat-docs-dropdown-header">
+                  <span>选择文档</span>
+                  <button class="chat-docs-close-btn" onclick="closeDocsDropdown(event)">x</button>
+                </div>
+                <div id="chat-docs-dropdown-list"></div>
+              </div>
+            </div>
+            <div id="chat-docs-tags" class="chat-docs-tags"></div>
           </div>
           <div class="chat-input-wrapper">
             <textarea id="chat-input" class="chat-input" placeholder="输入消息..." rows="2" disabled></textarea>

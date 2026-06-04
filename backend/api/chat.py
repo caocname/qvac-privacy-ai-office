@@ -27,6 +27,7 @@ class ChatRequest(BaseModel):
     message: str = Field(..., min_length=1, max_length=8192)
     enable_rag: bool = Field(default=True, description="是否启用 RAG 检索增强")
     isolate_mode: str = Field(default="session", description="对话隔离模式: global | session | temp")
+    context_document_ids: list[str] = Field(default_factory=list, description="要加载全文到上下文的知识库文档 ID 列表")
 
 
 class ChatCreateSession(BaseModel):
@@ -154,14 +155,49 @@ async def send_message(req: ChatRequest):
     # 1. 保存用户消息
     user_msg_id = SessionManager.append_message(req.session_id, "user", req.message)
 
+    # 1.5 加载上下文文档全文（注入到 LLM 上下文中，类似 text1 附件机制）
+    context_docs_text: str = ""
+    # Llama tokenizer 中文 ~2-3 tokens/char, 2000 chars × 2.5 ≈ 5000 tokens
+    # + system prompt (~500) + history (~500) ≈ 6000, 留 2000 余量在 8192 内
+    MAX_DOC_CONTEXT_CHARS = 2000
+    if req.context_document_ids:
+        from backend.database.connection import DatabaseManager
+        db = DatabaseManager.get_instance()
+        doc_texts: list[str] = []
+        for file_id in req.context_document_ids:
+            file_row = db.conn.execute(
+                "SELECT file_name FROM knowledge_base WHERE file_id = ? AND is_deleted = 0",
+                (file_id,),
+            ).fetchone()
+            if not file_row:
+                continue
+            chunks = db.conn.execute(
+                "SELECT content FROM rag_chunks WHERE file_id = ? ORDER BY chunk_index",
+                (file_id,),
+            ).fetchall()
+            if chunks:
+                doc_full = "\n".join(c[0] for c in chunks)
+                doc_texts.append(f"【已加载文档: {file_row[0]}】\n\n{doc_full}")
+        if doc_texts:
+            combined = "\n\n---\n\n".join(doc_texts)
+            if len(combined) > MAX_DOC_CONTEXT_CHARS:
+                combined = combined[:MAX_DOC_CONTEXT_CHARS] + "\n\n[... 文档过长已截断 ...]"
+            context_docs_text = combined
+            logger.log(LogType.SYSTEM, {
+                "session_id": req.session_id,
+                "event": "context_docs_loaded",
+                "doc_count": len(doc_texts),
+                "total_chars": len(combined),
+            })
+
     # 2. RAG 检索
     rag_chunks: list[str] = []
     rag_metas: list[str] = []
+    rag_fallback_msg: str | None = None
     if req.enable_rag:
         state_mgr.transition(StateCode.RETRIEVING)
         rag_service = RAGService()
 
-        # 尝试获取 query embedding 并检索
         llm = get_llm_service()
         embeddings = await llm.embed([req.message])
         if embeddings:
@@ -177,6 +213,8 @@ async def send_message(req: ChatRequest):
                     f"[来源: {c.get('file_name', '未知')} #Chunk-{c.get('chunk_index', '?')}]"
                     for c in result.get("chunks", [])
                 ]
+            else:
+                rag_fallback_msg = result.get("message", "未在本地知识库中检索到匹配内容，请尝试更换关键词。")
 
         if not rag_chunks:
             logger.log(LogType.RAG_RETRIEVAL, {
@@ -184,6 +222,27 @@ async def send_message(req: ChatRequest):
                 "result": "no_match",
                 "code": 145,
             })
+            if rag_fallback_msg is None:
+                rag_fallback_msg = "Embedding 模型未就绪，请等待 Bridge 模型加载完成后重试。"
+
+    # R-04: RAG 已启用但未检索到匹配内容 → 阻断 LLM（除非已加载上下文文档）
+    if req.enable_rag and not rag_chunks and rag_fallback_msg and not context_docs_text:
+        state_mgr.transition(StateCode.IDLE)
+        assistant_msg_id = SessionManager.append_message(req.session_id, "assistant", rag_fallback_msg)
+        logger.log(LogType.RAG_RETRIEVAL, {
+            "session_id": req.session_id,
+            "event": "rag_blocked_llm",
+            "fallback": rag_fallback_msg[:100],
+        })
+
+        async def fallback_stream():
+            yield f"data: {json.dumps({'done': True, 'message_id': assistant_msg_id, 'full_text': rag_fallback_msg, 'memory_truncated': False, 'truncated_message_ids': []})}\n\n"
+
+        return StreamingResponse(
+            fallback_stream(),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "Connection": "keep-alive", "X-Accel-Buffering": "no"},
+        )
     # 3. 构建上下文窗口
     history = SessionManager.get_history(req.session_id)
     history_messages = [
@@ -212,9 +271,18 @@ async def send_message(req: ChatRequest):
     for m in assembly.messages:
         llm_messages.append({"role": m.role, "content": m.content})
 
+    # 构建增强上下文：全量文档 + RAG 片段
+    enhanced_context_parts: list[str] = []
+    if context_docs_text:
+        enhanced_context_parts.append(f"【已加载文档全文 — 回答必须基于此内容】\n{context_docs_text}")
+
     rag_context = "\n\n".join(
         f"{rag_chunks[i]}\n{rag_metas[i]}" for i in range(len(rag_chunks))
     ) if rag_chunks else ""
+    if rag_context:
+        enhanced_context_parts.append(f"【RAG 参考片段】\n{rag_context}")
+
+    enhanced_context = "\n\n---\n\n".join(enhanced_context_parts) if enhanced_context_parts else ""
 
     # 5. 流式推理
     state_mgr.transition(StateCode.LLM_GENERATING)
@@ -226,7 +294,7 @@ async def send_message(req: ChatRequest):
         try:
             async for chunk in llm_svc.chat_stream(
                 messages=llm_messages,
-                rag_context=rag_context,
+                rag_context=enhanced_context,
                 max_tokens=2048,
                 temperature=0.7,
             ):

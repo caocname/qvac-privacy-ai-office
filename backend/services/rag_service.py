@@ -107,6 +107,9 @@ class RAGService:
         query = np.asarray(query_embedding, dtype=np.float32)
         if query.ndim == 1:
             query = query.reshape(1, -1)
+        # L2 归一化查询向量，与索引向量一致，使 IndexFlatIP 等价 Cosine
+        import faiss
+        faiss.normalize_L2(query)
         if query.shape[1] != self._dim:
             return {
                 "code": 145,

@@ -133,7 +133,7 @@ class LLMService:
         if rag_context:
             full_messages.append({
                 "role": "system",
-                "content": f"【参考片段 — 回答必须100%来源于此】\n{rag_context}",
+                "content": rag_context,
             })
 
         try:

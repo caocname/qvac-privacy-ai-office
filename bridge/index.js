@@ -95,7 +95,7 @@ const server = http.createServer(async (req, res) => {
       process.stderr.write(`[Bridge] Loading LLM via SDK: ${modelName}\n`);
       llmModelId = await loadModel({
         modelSrc: MODEL_DESCRIPTOR_MAP.llm,
-        modelConfig: { ctx_size: 4096 },
+        modelConfig: { ctx_size: 8192 },
       });
       llmModelName = modelName;
       process.stderr.write(`[Bridge] LLM loaded — modelId=${llmModelId}\n`);

@@ -330,3 +330,78 @@ async def delete_file(file_id: str):
         "status": StateCode.IDLE.name,
         "message": "文件已标记删除，后台异步擦除中。",
     }
+
+
+@router.get("/document/{file_id}/content")
+async def get_document_content(file_id: str):
+    """获取文档全文 — 从 rag_chunks 按序拼接，用于对话上下文注入。"""
+    db = DatabaseManager.get_instance()
+
+    row = db.conn.execute(
+        "SELECT file_name FROM knowledge_base WHERE file_id = ? AND is_deleted = 0",
+        (file_id,),
+    ).fetchone()
+    if not row:
+        return {
+            "code": StateCode.ERROR.value,
+            "status": StateCode.ERROR.name,
+            "message": "文档不存在或已删除",
+        }
+
+    chunks = db.conn.execute(
+        "SELECT content FROM rag_chunks WHERE file_id = ? ORDER BY chunk_index",
+        (file_id,),
+    ).fetchall()
+
+    if not chunks:
+        # 降级：直接从磁盘文件提取
+        path_row = db.conn.execute(
+            "SELECT file_path FROM knowledge_base WHERE file_id = ?", (file_id,)
+        ).fetchone()
+        if path_row:
+            cipher = db.cipher
+            enc_path = path_row[0]
+            try:
+                actual_path = cipher.decrypt(enc_path) if cipher else enc_path
+            except Exception:
+                actual_path = enc_path
+            file_path = Path(actual_path)
+            if file_path.exists():
+                ext = file_path.suffix.lower()
+                if ext == ".txt":
+                    extracted = _extract_text_from_txt(file_path)
+                elif ext == ".pdf":
+                    extracted = _extract_text_from_pdf(file_path)
+                elif ext == ".docx":
+                    extracted = _extract_text_from_docx(file_path)
+                else:
+                    extracted = ""
+                if extracted.strip():
+                    full_text = extracted
+                    return {
+                        "code": StateCode.IDLE.value,
+                        "status": StateCode.IDLE.name,
+                        "data": {
+                            "file_id": file_id,
+                            "file_name": row[0],
+                            "content": full_text,
+                            "char_count": len(full_text),
+                        },
+                    }
+        return {
+            "code": StateCode.ERROR.value,
+            "status": StateCode.ERROR.name,
+            "message": "文档内容为空，请重新上传。",
+        }
+
+    full_text = "\n\n".join(c[0] for c in chunks)
+    return {
+        "code": StateCode.IDLE.value,
+        "status": StateCode.IDLE.name,
+        "data": {
+            "file_id": file_id,
+            "file_name": row[0],
+            "content": full_text,
+            "char_count": len(full_text),
+        },
+    }
