@@ -105,8 +105,8 @@ document.querySelectorAll(".nav-item").forEach(function (item) {
     if (pages[target]) pages[target].classList.add("active");
     if (target === "audit") loadAuditLogs();
     if (target === "settings") loadSystemState();
-    if (target === "knowledge") loadKnowledgeList();
-    if (target === "asr") loadASRArchives();
+    if (target === "knowledge") { loadFolderTree().then(function () { loadKnowledgeList(); }); }
+    if (target === "asr") { loadASRArchives(); loadFolderTree(); }
     if (target === "chat") pages.chat.classList.add("active");
   });
 });
@@ -731,30 +731,315 @@ document.getElementById("isolate-mode-select").addEventListener("change", functi
   currentIsolateMode = this.value;
 });
 
+document.getElementById("kb-folder-select").addEventListener("change", function () {
+  selectFolder(this.value);
+});
+
+// ---- 知识库文件夹树 ----
+var currentFolderId = "";
+
+async function loadFolderTree() {
+  var tree = document.getElementById("folder-tree");
+  try {
+    var resp = await fetch(BACKEND_URL + "/api/v1/knowledge/folders?tree=false");
+    var data = await resp.json();
+    var folders = data.data || [];
+    var html = '<div class="folder-item' + (currentFolderId === "" ? " active" : "") + '" data-folder-id="" onclick="selectFolder(\'\')">' +
+      '<span class="folder-icon">📁</span><span class="folder-item-name">全部文档</span></div>';
+    folders.forEach(function (f) {
+      html += '<div class="folder-item' + (currentFolderId === f.folder_id ? " active" : "") + '" data-folder-id="' + f.folder_id + '" onclick="selectFolder(\'' + f.folder_id + '\')">' +
+        '<span class="folder-icon">📁</span>' +
+        '<span class="folder-item-name" title="' + escapeHtml(f.name) + '">' + escapeHtml(f.name) + '</span>' +
+        '<span class="folder-item-actions">' +
+          '<button title="重命名" onclick="event.stopPropagation();renameFolderPrompt(\'' + f.folder_id + '\',\'' + escapeHtml(f.name) + '\')">✎</button>' +
+          '<button title="删除" onclick="event.stopPropagation();deleteFolderConfirm(\'' + f.folder_id + '\')">✕</button>' +
+        '</span></div>';
+    });
+    tree.innerHTML = html;
+    // 保存全局文件夹列表，同步更新选择器
+    folderList = folders;
+    updateFolderSelectors(folders);
+    return folders;
+  } catch (_) {
+    folderList = [];
+    return [];
+  }
+}
+
+function updateFolderSelectors(folders) {
+  var opts = '<option value="">根目录</option>';
+  folders.forEach(function (f) {
+    opts += '<option value="' + f.folder_id + '">' + escapeHtml(f.name) + '</option>';
+  });
+  var selectors = [
+    document.getElementById("kb-folder-select"),
+    document.getElementById("asr-import-folder"),
+  ];
+  selectors.forEach(function (sel) {
+    if (sel) {
+      var currentVal = sel.value;
+      sel.innerHTML = opts;
+      sel.value = currentVal || "";
+    }
+  });
+}
+
+function selectFolder(folderId) {
+  currentFolderId = folderId;
+  document.querySelectorAll("#folder-tree .folder-item").forEach(function (el) {
+    el.classList.toggle("active", el.dataset.folderId === folderId);
+  });
+  document.getElementById("kb-folder-select").value = folderId;
+  loadKnowledgeList();
+}
+
+// ---- 文件夹 CRUD ----
+document.getElementById("new-folder-btn").addEventListener("click", function (e) {
+  e.stopPropagation();
+  var tree = document.getElementById("folder-tree");
+  // 移除已有的输入框
+  var existingInput = tree.querySelector(".folder-input-row");
+  if (existingInput) {
+    existingInput.remove();
+    return;
+  }
+  // 在树顶部插入输入框
+  var inputRow = document.createElement("div");
+  inputRow.className = "folder-input-row";
+  inputRow.style.cssText = "display:flex;align-items:center;gap:4px;padding:6px 16px;border-bottom:1px solid var(--border)";
+  var input = document.createElement("input");
+  input.type = "text";
+  input.placeholder = "文件夹名称";
+  input.maxLength = 64;
+  input.style.cssText = "flex:1;background:var(--bg-tertiary);border:1px solid var(--accent);border-radius:3px;color:var(--text-primary);padding:4px 8px;font-size:12px;outline:none";
+  var confirmBtn = document.createElement("button");
+  confirmBtn.textContent = "✓";
+  confirmBtn.className = "btn btn-tiny";
+  confirmBtn.style.cssText = "color:var(--success);border-color:var(--success)";
+  var cancelBtn = document.createElement("button");
+  cancelBtn.textContent = "✕";
+  cancelBtn.className = "btn btn-tiny";
+  cancelBtn.style.cssText = "color:var(--text-secondary)";
+
+  function doCreate() {
+    var name = input.value.trim();
+    inputRow.remove();
+    if (!name) return;
+    fetch(BACKEND_URL + "/api/v1/knowledge/folders", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: name }),
+    }).then(function (r) { return r.json(); }).then(function (data) {
+      if (data.code === 100) {
+        showToast("文件夹「" + name + "」已创建", "success");
+        loadFolderTree();
+      } else {
+        showToast(data.message || "创建失败", "error");
+      }
+    }).catch(function () { showToast("创建失败", "error"); });
+  }
+
+  input.addEventListener("keydown", function (ev) {
+    if (ev.key === "Enter") { ev.preventDefault(); doCreate(); }
+    if (ev.key === "Escape") { ev.preventDefault(); inputRow.remove(); }
+  });
+  confirmBtn.addEventListener("click", doCreate);
+  cancelBtn.addEventListener("click", function () { inputRow.remove(); });
+
+  inputRow.appendChild(input);
+  inputRow.appendChild(confirmBtn);
+  inputRow.appendChild(cancelBtn);
+  tree.insertBefore(inputRow, tree.firstChild);
+  input.focus();
+});
+
+function renameFolderPrompt(folderId, oldName) {
+  var name = prompt("重命名文件夹:", oldName);
+  if (!name || !name.trim() || name.trim() === oldName) return;
+  name = name.trim();
+  fetch(BACKEND_URL + "/api/v1/knowledge/folders/" + folderId + "?name=" + encodeURIComponent(name), {
+    method: "PUT",
+  }).then(function (r) { return r.json(); }).then(function (data) {
+    if (data.code === 100) {
+      showToast("已重命名为「" + name + "」", "success");
+      loadFolderTree();
+    } else {
+      showToast(data.message || "重命名失败", "error");
+    }
+  }).catch(function () { showToast("重命名失败", "error"); });
+}
+
+function deleteFolderConfirm(folderId) {
+  showConfirm("删除文件夹", "删除文件夹后其中的文档不会被删除，仅解除关联。确认？", async function () {
+    try {
+      var resp = await fetch(BACKEND_URL + "/api/v1/knowledge/folders/" + folderId, { method: "DELETE" });
+      var data = await resp.json();
+      if (data.code === 100) {
+        showToast("文件夹已删除", "success");
+        if (currentFolderId === folderId) { currentFolderId = ""; }
+        loadFolderTree();
+        loadKnowledgeList();
+      } else {
+        showToast(data.message || "删除失败", "error");
+      }
+    } catch (_) { showToast("删除失败", "error"); }
+  });
+}
+
+// ---- 知识库文件列表（版本分组） ----
 async function loadKnowledgeList() {
   var container = document.getElementById("knowledge-list");
   try {
-    var resp = await fetch(BACKEND_URL + "/api/v1/knowledge/list");
+    var url = BACKEND_URL + "/api/v1/knowledge/list";
+    if (currentFolderId) url += "?folder_id=" + currentFolderId;
+    var resp = await fetch(url);
     var data = await resp.json();
     if (!data.data || data.data.length === 0) {
       container.innerHTML = '<p class="empty-state">尚未上传任何文档</p>';
       return;
     }
-    container.innerHTML = data.data.map(function (f) {
-      return '<div class="kb-item">' +
-        '<div class="kb-item-info">' +
-          '<span class="kb-item-name">' + escapeHtml(f.file_name) + '</span>' +
-          '<span class="kb-item-meta">' + formatSize(f.file_size) + ' · ' + f.total_pages + ' 页</span>' +
-        '</div>' +
-        '<div class="kb-item-actions">' +
-          '<span class="kb-badge kb-badge-' + f.isolate_mode + '">' + f.isolate_mode + '</span>' +
-          '<button class="btn btn-small btn-danger" onclick="deleteKnowledge(\'' + f.file_id + '\')">删除</button>' +
-        '</div>' +
-      '</div>';
-    }).join("");
+    // 按 import_group_id 分组
+    var groups = {};
+    var singles = [];
+    data.data.forEach(function (f) {
+      if (f.import_group_id) {
+        if (!groups[f.import_group_id]) groups[f.import_group_id] = [];
+        groups[f.import_group_id].push(f);
+      } else {
+        singles.push(f);
+      }
+    });
+    // 组内按 version 降序
+    Object.keys(groups).forEach(function (gid) {
+      groups[gid].sort(function (a, b) { return b.version - a.version; });
+    });
+
+    var html = "";
+    // 渲染版本组
+    Object.keys(groups).forEach(function (gid) {
+      var g = groups[gid];
+      var latest = g[0];
+      var gidSafe = gid.replace(/[^a-zA-Z0-9_-]/g, "");
+      if (g.length === 1) {
+        // 只有一个版本，作为普通条目
+        html += renderFileItem(g[0]);
+      } else {
+        // 多版本，折叠组
+        html += '<div class="version-group" id="vg-' + gidSafe + '">' +
+          '<div class="version-group-header" onclick="toggleVersionGroup(\'' + gidSafe + '\')">' +
+            '<div class="version-group-info">' +
+              '<span class="version-group-name">' + escapeHtml(latest.original_name || latest.file_name) + '</span>' +
+              '<span class="version-badge">v' + latest.version + '</span>' +
+              '<span class="version-group-meta">共 ' + g.length + ' 个版本</span>' +
+            '</div>' +
+            '<span style="font-size:11px;color:var(--text-secondary)">展开 ▼</span>' +
+          '</div>' +
+          '<div class="version-list" style="display:none" id="vg-list-' + gidSafe + '">' +
+            g.map(function (v) {
+              return '<div class="version-item">' +
+                '<div class="version-item-info">' +
+                  '<span class="version-badge" style="opacity:' + (v.version === latest.version ? '1' : '0.6') + '">v' + v.version + '</span>' +
+                  '<span class="version-item-time">' + (v.create_time || "") + '</span>' +
+                  '<span style="font-size:11px;color:var(--text-secondary)">' + formatSize(v.file_size) + ' · ' + v.total_pages + ' 块</span>' +
+                '</div>' +
+                '<div class="version-item-actions">' +
+                  renderFileActions(v) +
+                '</div>' +
+              '</div>';
+            }).join("") +
+          '</div>' +
+        '</div>';
+      }
+    });
+    // 渲染单文件
+    singles.forEach(function (f) {
+      html += renderFileItem(f);
+    });
+
+    container.innerHTML = html || '<p class="empty-state">尚未上传任何文档</p>';
   } catch (_) {
     container.innerHTML = '<p class="empty-state">无法加载知识库数据</p>';
   }
+}
+
+function renderFileItem(f) {
+  return '<div class="kb-file-item">' +
+    '<div class="kb-file-info">' +
+      '<span class="kb-file-name">' + escapeHtml(f.file_name) +
+        (f.version > 1 ? ' <span class="version-badge">v' + f.version + '</span>' : '') +
+      '</span>' +
+      '<span class="kb-file-meta">' +
+        '<span>' + formatSize(f.file_size) + '</span>' +
+        '<span>' + f.total_pages + ' 块</span>' +
+        '<span class="kb-badge kb-badge-' + f.isolate_mode + '">' + f.isolate_mode + '</span>' +
+        (f.create_time ? '<span>' + f.create_time + '</span>' : '') +
+      '</span>' +
+    '</div>' +
+    '<div class="kb-file-actions">' +
+      renderFileActions(f) +
+    '</div>' +
+  '</div>';
+}
+
+var folderList = [];
+
+function renderFileActions(f) {
+  var folderOpts = '<option value="">移至文件夹...</option>';
+  folderList.forEach(function (fl) {
+    var sel = (f.folder_id === fl.folder_id) ? " selected" : "";
+    folderOpts += '<option value="' + fl.folder_id + '"' + sel + '>' + escapeHtml(fl.name) + '</option>';
+  });
+  return '<button class="btn btn-tiny" onclick="downloadDocument(\'' + f.file_id + '\')" title="下载原文件">下载</button>' +
+    '<select class="export-select" id="exp-' + f.file_id + '" onchange="exportDocument(\'' + f.file_id + '\',this.value);this.value=\'\'">' +
+      '<option value="">导出...</option>' +
+      '<option value="txt">TXT</option>' +
+      '<option value="md">MD</option>' +
+      '<option value="docx">DOCX</option>' +
+    '</select>' +
+    '<select class="export-select" onchange="moveFileToFolder(\'' + f.file_id + '\',this.value)">' +
+      folderOpts +
+    '</select>' +
+    '<button class="btn btn-tiny btn-danger" onclick="deleteKnowledge(\'' + f.file_id + '\')">删除</button>';
+}
+
+function toggleVersionGroup(gid) {
+  var list = document.getElementById("vg-list-" + gid);
+  if (!list) return;
+  if (list.style.display === "none") {
+    list.style.display = "block";
+    var header = list.previousElementSibling;
+    if (header) header.querySelector("span:last-child").textContent = "收起 ▲";
+  } else {
+    list.style.display = "none";
+    var header = list.previousElementSibling;
+    if (header) header.querySelector("span:last-child").textContent = "展开 ▼";
+  }
+}
+
+function downloadDocument(fileId) {
+  var a = document.createElement("a");
+  a.href = BACKEND_URL + "/api/v1/knowledge/download/" + fileId;
+  a.download = "";
+  a.click();
+  showToast("文档下载中...", "success");
+}
+
+async function exportDocument(fileId, format) {
+  if (!format) return;
+  try {
+    var resp = await fetch(BACKEND_URL + "/api/v1/knowledge/export", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ file_id: fileId, format: format }),
+    });
+    if (!resp.ok) { showToast("导出失败", "error"); return; }
+    var blob = await resp.blob();
+    var disposition = resp.headers.get("Content-Disposition") || "";
+    var fname = disposition.match(/filename="?(.+?)"?($|;)/);
+    var filename = fname ? fname[1] : "export." + format;
+    downloadBlob(blob, filename);
+    showToast("已导出为 " + filename, "success");
+  } catch (_) { showToast("导出失败", "error"); }
 }
 
 document.getElementById("upload-btn").addEventListener("click", function () {
@@ -766,10 +1051,12 @@ document.getElementById("file-input").addEventListener("change", async function 
   if (!file) return;
 
   var isolateMode = document.getElementById("isolate-mode-select").value;
+  var folderId = document.getElementById("kb-folder-select").value;
   var formData = new FormData();
   formData.append("file", file);
   formData.append("isolate_mode", isolateMode);
   formData.append("session_id", currentSessionId || "");
+  if (folderId) formData.append("folder_id", folderId);
 
   var uploadBtn = document.getElementById("upload-btn");
   uploadBtn.disabled = true;
@@ -815,6 +1102,7 @@ document.getElementById("file-input").addEventListener("change", async function 
         } catch (_) {}
       }
       loadKnowledgeList();
+      loadFolderTree();
     } else {
       showToast(data.message || "上传失败", "error");
     }
@@ -827,11 +1115,30 @@ document.getElementById("file-input").addEventListener("change", async function 
   e.target.value = "";
 });
 
+async function moveFileToFolder(fileId, folderId) {
+  try {
+    var resp = await fetch(BACKEND_URL + "/api/v1/knowledge/files/move", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ file_id: fileId, folder_id: folderId || null }),
+    });
+    var data = await resp.json();
+    if (data.code === 100) {
+      showToast("文件已移动", "success");
+      loadKnowledgeList();
+      loadFolderTree();
+    } else {
+      showToast(data.message || "移动失败", "error");
+    }
+  } catch (_) { showToast("移动失败", "error"); }
+}
+
 async function deleteKnowledge(fileId) {
   showConfirm("删除文档", "确认永久删除此文档？此操作不可撤销。", async function () {
     try {
       await fetch(BACKEND_URL + "/api/v1/knowledge/delete?file_id=" + fileId, { method: "DELETE" });
       loadKnowledgeList();
+      loadFolderTree();
       showToast("文档已删除", "success");
     } catch (_) {
       showToast("删除失败", "error");
@@ -950,9 +1257,10 @@ function startASRPolling(taskId) {
           "时长: " + (data.data.duration || 0).toFixed(1) + "s";
         var transcribedText = data.data.transcribed_text || "(空)";
         document.getElementById("asr-result-text").textContent = transcribedText;
-        // 保存结果供导出
+        // 保存结果供导出和导入
         window._lastASRText = transcribedText;
         window._lastASRAudioName = data.data.audio_name || "transcription";
+        window._lastASRArchiveId = data.data.archive_id;  // 供导入知识库使用
 
         loadASRArchives();
         showToast("ASR 转写完成", "success");
@@ -965,18 +1273,35 @@ function startASRPolling(taskId) {
   }, 2000);
 }
 
-function exportASRText() {
-  var text = window._lastASRText || "";
-  if (!text || text === "(空)") { showToast("暂无可导出的转写结果", "warn"); return; }
-  var name = (window._lastASRAudioName || "transcription").replace(/\.[^.]+$/, "");
-  var blob = new Blob([text], { type: "text/plain;charset=utf-8" });
-  var url = URL.createObjectURL(blob);
-  var a = document.createElement("a");
-  a.href = url;
-  a.download = name + ".txt";
-  a.click();
-  URL.revokeObjectURL(url);
-  showToast("转写结果已导出为 " + name + ".txt", "success");
+async function exportASRResult() {
+  var archiveId = window._lastASRArchiveId;
+  if (!archiveId) {
+    // 降级：无 archive_id 时用前端文本通过 Blob 导出
+    var text = window._lastASRText || "";
+    if (!text || text === "(空)") { showToast("暂无可导出的转写结果", "warn"); return; }
+    var name = (window._lastASRAudioName || "transcription").replace(/\.[^.]+$/, "");
+    var format = document.getElementById("asr-export-format").value;
+    var mime = format === "md" ? "text/markdown" : "text/plain;charset=utf-8";
+    var blob = new Blob([text], { type: mime });
+    downloadBlob(blob, name + "." + format);
+    showToast("已导出", "success");
+    return;
+  }
+  var format = document.getElementById("asr-export-format").value;
+  try {
+    var resp = await fetch(BACKEND_URL + "/api/v1/asr/export", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ archive_id: archiveId, format: format }),
+    });
+    if (!resp.ok) { showToast("导出失败", "error"); return; }
+    var blob = await resp.blob();
+    var disposition = resp.headers.get("Content-Disposition") || "";
+    var fname = disposition.match(/filename="?(.+?)"?($|;)/);
+    var filename = fname ? fname[1] : "transcription." + format;
+    downloadBlob(blob, filename);
+    showToast("已导出为 " + filename, "success");
+  } catch (_) { showToast("导出失败", "error"); }
 }
 
 async function loadASRArchives() {
@@ -989,18 +1314,109 @@ async function loadASRArchives() {
       return;
     }
     container.innerHTML = data.data.map(function (a) {
+      var aid = a.archive_id;
       return '<div class="kb-item">' +
         '<div class="kb-item-info">' +
           '<span class="kb-item-name">' + escapeHtml(a.audio_name) + '</span>' +
           '<span class="kb-item-meta">' + (a.duration || 0).toFixed(1) + 's · ' + (a.create_time || "") + '</span>' +
         '</div>' +
-        '<span class="kb-badge kb-badge-session">ASR</span>' +
+        '<div class="kb-item-actions" style="display:flex;align-items:center;gap:6px">' +
+          '<select class="export-select" onchange="exportASRArchive(\'' + aid + '\',this.value);this.value=\'\'">' +
+            '<option value="">导出...</option>' +
+            '<option value="txt">TXT</option>' +
+            '<option value="md">MD</option>' +
+            '<option value="docx">DOCX</option>' +
+          '</select>' +
+          '<button class="btn btn-tiny btn-primary" onclick="showASRImportDialog(\'' + aid + '\',\'' + escapeHtml(a.audio_name).replace(/'/g, "\\'") + '\')">导入知识库</button>' +
+        '</div>' +
       '</div>';
     }).join("");
   } catch (_) {
     container.innerHTML = '<p class="empty-state">无法加载转写记录</p>';
   }
 }
+
+async function exportASRArchive(archiveId, format) {
+  if (!format) return;
+  try {
+    var resp = await fetch(BACKEND_URL + "/api/v1/asr/export", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ archive_id: archiveId, format: format }),
+    });
+    if (!resp.ok) { showToast("导出失败", "error"); return; }
+    var blob = await resp.blob();
+    var disposition = resp.headers.get("Content-Disposition") || "";
+    var fname = disposition.match(/filename="?(.+?)"?($|;)/);
+    var filename = fname ? fname[1] : "transcription." + format;
+    downloadBlob(blob, filename);
+    showToast("已导出为 " + filename, "success");
+  } catch (_) { showToast("导出失败", "error"); }
+}
+
+// ---- ASR 导入知识库弹窗 ----
+var currentImportArchiveId = null;
+
+function showASRImportDialog(archiveId, audioName) {
+  // 如果从历史记录调用，使用传入的 archiveId；否则用当前结果
+  currentImportArchiveId = archiveId || window._lastASRArchiveId || null;
+  if (!currentImportArchiveId) { showToast("没有可导入的转写结果", "warn"); return; }
+
+  var title = audioName || window._lastASRAudioName || "";
+  document.getElementById("asr-import-title").value = title;
+  document.getElementById("asr-import-modal").classList.remove("hidden");
+}
+
+async function submitASRImport() {
+  if (!currentImportArchiveId) return;
+  var title = document.getElementById("asr-import-title").value.trim();
+  var format = document.getElementById("asr-import-format").value;
+  var isolateMode = document.getElementById("asr-import-isolate").value;
+  var folderId = document.getElementById("asr-import-folder").value;
+  var submitBtn = document.getElementById("asr-import-submit-btn");
+  submitBtn.disabled = true;
+  submitBtn.textContent = "导入中...";
+
+  try {
+    var body = {
+      archive_id: currentImportArchiveId,
+      format: format,
+      isolate_mode: isolateMode,
+    };
+    if (title) body.title = title;
+    if (folderId) body.folder_id = folderId;
+    if (isolateMode === "session" && currentSessionId) body.session_id = currentSessionId;
+
+    var resp = await fetch(BACKEND_URL + "/api/v1/asr/import-to-kb", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    var data = await resp.json();
+    if (data.code === 100) {
+      showToast("已导入知识库 (" + (data.data && data.data.chunk_count || 0) + " 个分片)", "success");
+      document.getElementById("asr-import-modal").classList.add("hidden");
+      loadFolderTree();
+      loadKnowledgeList();
+    } else {
+      showToast(data.message || "导入失败", "error");
+    }
+  } catch (_) {
+    showToast("导入请求失败", "error");
+  }
+  submitBtn.disabled = false;
+  submitBtn.textContent = "确认导入";
+}
+
+// 绑定导入弹窗按钮
+document.getElementById("asr-import-submit-btn").addEventListener("click", submitASRImport);
+document.getElementById("asr-import-cancel-btn").addEventListener("click", function () {
+  document.getElementById("asr-import-modal").classList.add("hidden");
+});
+// 点击遮罩关闭
+document.querySelector("#asr-import-modal .modal-mask").addEventListener("click", function () {
+  document.getElementById("asr-import-modal").classList.add("hidden");
+});
 
 // ---- 审计日志 ----
 var auditPage = 1;

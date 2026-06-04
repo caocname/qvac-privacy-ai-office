@@ -45,6 +45,74 @@ class DatabaseManager:
 
     def _init_schema(self) -> None:
         self._conn.executescript(SCHEMA_SQL)
+        self._run_migrations()
+
+    def _run_migrations(self) -> None:
+        """增量迁移 — 为旧数据库添加新列（忽略已存在的列）。"""
+        migrations = [
+            "ALTER TABLE knowledge_base ADD COLUMN folder_id VARCHAR(64)",
+            "ALTER TABLE knowledge_base ADD COLUMN version INTEGER NOT NULL DEFAULT 1",
+            "ALTER TABLE knowledge_base ADD COLUMN original_name VARCHAR(256) NOT NULL DEFAULT ''",
+            "ALTER TABLE knowledge_base ADD COLUMN import_group_id VARCHAR(64) NOT NULL DEFAULT ''",
+        ]
+        for sql in migrations:
+            try:
+                self._conn.execute(sql)
+            except sqlite3.OperationalError:
+                pass  # 列已存在，跳过
+
+        self._repair_legacy_records()
+
+    def _repair_legacy_records(self) -> None:
+        """回填旧记录并合并同名文件到同一版本分组。"""
+        import uuid
+
+        # 1. 回填 original_name（为空的记录用 file_name 填充）
+        self._conn.execute(
+            "UPDATE knowledge_base SET original_name = file_name "
+            "WHERE original_name = '' AND is_deleted = 0"
+        )
+
+        # 2. 按 LOWER(original_name) 分组合并 import_group_id
+        #    找出所有不同的 original_name（大小写不敏感）
+        names = self._conn.execute(
+            "SELECT DISTINCT LOWER(original_name) FROM knowledge_base WHERE is_deleted = 0"
+        ).fetchall()
+
+        for (name_key,) in names:
+            # 该同名组下所有文件
+            recs = self._conn.execute(
+                "SELECT file_id, import_group_id, create_time FROM knowledge_base "
+                "WHERE LOWER(original_name) = ? AND is_deleted = 0 "
+                "ORDER BY create_time ASC",
+                (name_key,),
+            ).fetchall()
+
+            if len(recs) <= 1:
+                continue
+
+            # 优先使用已有的有效 import_group_id（非空）
+            existing_groups = [r[1] for r in recs if r[1]]
+            group_id = existing_groups[0] if existing_groups else f"group-{uuid.uuid4().hex[:12]}"
+
+            # 统一 group_id，按 create_time 分配版本号
+            for idx, rec in enumerate(recs):
+                file_id, current_group, _ = rec
+                version = idx + 1
+                if current_group != group_id:
+                    self._conn.execute(
+                        "UPDATE knowledge_base SET import_group_id = ?, version = ? "
+                        "WHERE file_id = ?",
+                        (group_id, version, file_id),
+                    )
+                elif current_group == group_id:
+                    # 同组但版本号可能不对，更新版本号
+                    self._conn.execute(
+                        "UPDATE knowledge_base SET version = ? WHERE file_id = ?",
+                        (version, file_id),
+                    )
+
+        self._conn.commit()
 
     def close(self) -> None:
         if self._conn:
@@ -61,8 +129,20 @@ CREATE TABLE IF NOT EXISTS knowledge_base (
     total_pages INTEGER NOT NULL,
     isolate_mode VARCHAR(16) NOT NULL CHECK(isolate_mode IN ('global', 'session', 'temp')),
     session_id VARCHAR(64),
+    folder_id VARCHAR(64),
+    version INTEGER NOT NULL DEFAULT 1,
+    original_name VARCHAR(256) NOT NULL DEFAULT '',
+    import_group_id VARCHAR(64) NOT NULL DEFAULT '',
     is_deleted INTEGER NOT NULL DEFAULT 0,
     create_time DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS knowledge_folders (
+    folder_id VARCHAR(64) PRIMARY KEY,
+    name VARCHAR(256) NOT NULL,
+    parent_id VARCHAR(64),
+    create_time DATETIME DEFAULT CURRENT_TIMESTAMP,
+    update_time DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE IF NOT EXISTS asr_archive (

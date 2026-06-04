@@ -124,12 +124,31 @@
               <option value="global">隔离: 全局</option>
               <option value="temp">隔离: 临时</option>
             </select>
+            <select id="kb-folder-select" class="select-sm" style="max-width:140px">
+              <option value="">📁 根目录</option>
+            </select>
             <button id="upload-btn" class="btn btn-primary">上传文档</button>
-            <input type="file" id="file-input" hidden accept=".pdf,.docx,.txt" />
+            <input type="file" id="file-input" hidden accept=".pdf,.docx,.txt,.md" />
           </div>
         </div>
-        <div id="knowledge-list" class="list-container">
-          <p class="empty-state">尚未上传任何文档</p>
+        <div class="kb-layout">
+          <div class="kb-sidebar">
+            <div class="kb-folder-header">
+              <span>文件夹</span>
+              <button id="new-folder-btn" class="btn btn-tiny" title="新建文件夹">+</button>
+            </div>
+            <div id="folder-tree" class="folder-tree">
+              <div class="folder-item active" data-folder-id="" onclick="selectFolder('')">
+                <span class="folder-icon">📁</span>
+                <span class="folder-item-name">全部文档</span>
+              </div>
+            </div>
+          </div>
+          <div class="kb-main">
+            <div id="knowledge-list" class="list-container" style="padding:0">
+              <p class="empty-state">尚未上传任何文档</p>
+            </div>
+          </div>
         </div>
       </section>
 
@@ -169,12 +188,18 @@
           <div id="asr-result-panel" class="asr-result-panel hidden">
             <div class="asr-result-header">
               <span>转写结果</span>
-              <div style="display:flex;align-items:center;gap:12px">
-                <span id="asr-result-duration"></span>
-                <button id="asr-export-btn" class="btn btn-small" onclick="exportASRText()">导出 TXT</button>
-              </div>
+              <span id="asr-result-duration"></span>
             </div>
             <div id="asr-result-text" class="asr-result-text"></div>
+            <div class="asr-result-actions" style="margin-top:8px">
+              <select id="asr-export-format" class="export-select">
+                <option value="txt">TXT</option>
+                <option value="md">Markdown</option>
+                <option value="docx">DOCX</option>
+              </select>
+              <button id="asr-export-btn" class="btn btn-small" onclick="exportASRResult()">导出</button>
+              <button id="asr-import-kb-btn" class="btn btn-small btn-primary" onclick="showASRImportDialog()">导入知识库</button>
+            </div>
           </div>
 
           <!-- 历史记录 -->
@@ -315,6 +340,45 @@
       <div class="modal-footer">
         <button id="confirm-yes-btn" class="btn btn-danger" disabled>确认 (3s)</button>
         <button id="confirm-no-btn" class="btn btn-secondary">取消</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ========== ASR 导入知识库弹窗 ========== -->
+  <div id="asr-import-modal" class="modal hidden">
+    <div class="modal-mask"></div>
+    <div class="modal-dialog import-dialog">
+      <h3>导入转写结果到知识库</h3>
+      <div class="modal-body">
+        <div class="import-form-group">
+          <label>文档标题</label>
+          <input type="text" id="asr-import-title" placeholder="留空则使用音频文件名" maxlength="256" />
+        </div>
+        <div class="import-form-group">
+          <label>导入格式</label>
+          <select id="asr-import-format">
+            <option value="txt">纯文本 (TXT)</option>
+            <option value="md">Markdown (MD)</option>
+          </select>
+        </div>
+        <div class="import-form-group">
+          <label>隔离模式</label>
+          <select id="asr-import-isolate">
+            <option value="global">全局 (global)</option>
+            <option value="session">会话 (session)</option>
+            <option value="temp">临时 (temp)</option>
+          </select>
+        </div>
+        <div class="import-form-group">
+          <label>目标文件夹</label>
+          <select id="asr-import-folder">
+            <option value="">根目录</option>
+          </select>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button id="asr-import-submit-btn" class="btn btn-primary">确认导入</button>
+        <button id="asr-import-cancel-btn" class="btn btn-secondary">取消</button>
       </div>
     </div>
   </div>

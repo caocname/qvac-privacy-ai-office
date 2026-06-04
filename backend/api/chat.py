@@ -16,6 +16,12 @@ from backend.services.context_manager import ChatMessage, ContextManager
 from backend.services.llm_service import get_llm_service
 from backend.services.rag_service import RAGService
 from backend.services.session_manager import SessionManager
+from backend.config import (
+    RAG_TOPK,
+    TASK_SUMMARIZE_PROMPT,
+    TASK_LOOKUP_PROMPT,
+    TASK_GENERAL_PROMPT,
+)
 from backend.state_machine import StateCode, get_state_manager
 
 router = APIRouter(prefix="/api/v1/chat", tags=["chat"])
@@ -157,9 +163,12 @@ async def send_message(req: ChatRequest):
 
     # 1.5 加载上下文文档全文（注入到 LLM 上下文中，类似 text1 附件机制）
     context_docs_text: str = ""
-    # Llama tokenizer 中文 ~2-3 tokens/char, 2000 chars × 2.5 ≈ 5000 tokens
-    # + system prompt (~500) + history (~500) ≈ 6000, 留 2000 余量在 8192 内
-    MAX_DOC_CONTEXT_CHARS = 2000
+    # 1B 模型有效上下文约 3000-4000 tokens，5000 chars ≈ 2500 tokens 是安全上限
+    # 预算分配：开头 2000 + 中间 1500 + 结尾 1500 = 5000
+    MAX_DOC_CONTEXT_CHARS = 5000
+    DOC_HEAD_CHARS = 2000
+    DOC_MID_CHARS = 1500
+    DOC_TAIL_CHARS = 1500
     if req.context_document_ids:
         from backend.database.connection import DatabaseManager
         db = DatabaseManager.get_instance()
@@ -177,11 +186,21 @@ async def send_message(req: ChatRequest):
             ).fetchall()
             if chunks:
                 doc_full = "\n".join(c[0] for c in chunks)
+                doc_len = len(doc_full)
+                if doc_len > MAX_DOC_CONTEXT_CHARS:
+                    # 头+中+尾均匀采样，确保模型看到文档全貌
+                    mid_start = max(DOC_HEAD_CHARS, (doc_len - DOC_MID_CHARS) // 2)
+                    head_part = doc_full[:DOC_HEAD_CHARS]
+                    mid_part = doc_full[mid_start:mid_start + DOC_MID_CHARS]
+                    tail_part = doc_full[-DOC_TAIL_CHARS:]
+                    doc_full = (
+                        f"{head_part}\n\n[... 中间部分已省略 ...]\n\n"
+                        f"{mid_part}\n\n[... 中间部分已省略 ...]\n\n"
+                        f"{tail_part}"
+                    )
                 doc_texts.append(f"【已加载文档: {file_row[0]}】\n\n{doc_full}")
         if doc_texts:
             combined = "\n\n---\n\n".join(doc_texts)
-            if len(combined) > MAX_DOC_CONTEXT_CHARS:
-                combined = combined[:MAX_DOC_CONTEXT_CHARS] + "\n\n[... 文档过长已截断 ...]"
             context_docs_text = combined
             logger.log(LogType.SYSTEM, {
                 "session_id": req.session_id,
@@ -189,6 +208,21 @@ async def send_message(req: ChatRequest):
                 "doc_count": len(doc_texts),
                 "total_chars": len(combined),
             })
+
+    # 1.6 任务类型检测 — 在 RAG 检索之前，以便动态调整参数
+    msg_lower = req.message.lower()
+    if any(kw in msg_lower for kw in ["总结", "摘要", "概括", "归纳", "概述", "简述", "summarize", "总结一下", "归纳一下"]):
+        task_prompt = TASK_SUMMARIZE_PROMPT
+        task_mode = "summarize"
+        dynamic_topk = RAG_TOPK  # 总结模式使用默认 TopK
+    elif any(kw in msg_lower for kw in ["查找", "找到", "哪里", "哪段", "搜索", "定位", "有没有", "在哪", "找出", "第几章", "第几节"]):
+        task_prompt = TASK_LOOKUP_PROMPT
+        task_mode = "lookup"
+        dynamic_topk = 10  # 查找模式扩大检索范围
+    else:
+        task_prompt = TASK_GENERAL_PROMPT
+        task_mode = "general"
+        dynamic_topk = RAG_TOPK
 
     # 2. RAG 检索
     rag_chunks: list[str] = []
@@ -204,6 +238,7 @@ async def send_message(req: ChatRequest):
             import numpy as np
             result = rag_service.retrieve(
                 np.array(embeddings[0]),
+                topk=dynamic_topk,
                 isolate_mode=req.isolate_mode,
                 session_id=req.session_id,
             )
@@ -248,19 +283,23 @@ async def send_message(req: ChatRequest):
 
     assembly = context_mgr.assemble(history_messages, current_msg, rag_chunks, rag_topk_tokens)
 
+    # 3.5 构建 RAG 上下文字符串
+    rag_context = "\n\n".join(
+        f"{rag_chunks[i]}\n{rag_metas[i]}" for i in range(len(rag_chunks))
+    ) if rag_chunks else ""
+
     # 4. 准备发给 LLM 的消息列表
     llm_messages = []
     for m in assembly.messages:
         llm_messages.append({"role": m.role, "content": m.content})
 
-    # 构建增强上下文：全量文档 + RAG 片段
+    # 构建增强上下文：任务引导 + 全量文档 + RAG 片段
     enhanced_context_parts: list[str] = []
+    has_context = bool(context_docs_text or rag_context)
+    if has_context:
+        enhanced_context_parts.append(task_prompt)
     if context_docs_text:
-        enhanced_context_parts.append(f"【已加载文档全文 — 回答必须基于此内容】\n{context_docs_text}")
-
-    rag_context = "\n\n".join(
-        f"{rag_chunks[i]}\n{rag_metas[i]}" for i in range(len(rag_chunks))
-    ) if rag_chunks else ""
+        enhanced_context_parts.append(f"【已加载文档全文】\n{context_docs_text}")
     if rag_context:
         enhanced_context_parts.append(f"【RAG 参考片段】\n{rag_context}")
 
@@ -302,6 +341,7 @@ async def send_message(req: ChatRequest):
                             "session_id": req.session_id,
                             "message_id": assistant_msg_id,
                             "tokens_per_second": stats.get("tokens_per_second", 0),
+                            "task_mode": task_mode,
                         }, full_response[:200])
                     break
                 else:

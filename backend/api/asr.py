@@ -12,6 +12,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from fastapi import APIRouter, Query, UploadFile, File
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
 from backend.config import UPLOAD_DIR
@@ -341,3 +342,180 @@ async def list_archives():
             for r in rows
         ],
     }
+
+
+# ---- ASR 转写结果一键导入知识库 ----
+
+class ASRImportKBRequest(BaseModel):
+    archive_id: str = Field(..., description="ASR 归档 ID")
+    title: str = Field(default="", description="导入知识库的文档标题，留空则使用音频名")
+    format: str = Field(default="txt", description="导入格式: txt | md")
+    isolate_mode: str = Field(default="global", description="隔离模式: global | session | temp")
+    session_id: str | None = Field(default=None)
+    folder_id: str | None = Field(default=None)
+
+
+@router.post("/import-to-kb")
+async def import_to_knowledge_base(req: ASRImportKBRequest):
+    """将 ASR 转写结果一键导入知识库。
+
+    流程: 读取 ASR 归档 → 格式转换 → 分片 → Embedding → FAISS 索引
+    """
+    db = DatabaseManager.get_instance()
+    cipher = db.cipher
+
+    row = db.conn.execute(
+        "SELECT audio_name, transcribed_text FROM asr_archive WHERE archive_id = ?",
+        (req.archive_id,),
+    ).fetchone()
+    if not row:
+        return {
+            "code": StateCode.ERROR.value,
+            "status": StateCode.ERROR.name,
+            "message": "ASR 归档记录不存在",
+        }
+
+    audio_name, enc_text = row
+    text = cipher.decrypt(enc_text) if cipher else enc_text
+    if not text or text.startswith("[ASR"):
+        return {
+            "code": StateCode.ERROR.value,
+            "status": StateCode.ERROR.name,
+            "message": f"转写内容无效或转写失败: {text[:100]}",
+        }
+
+    # 格式转换
+    title = req.title or Path(audio_name).stem
+    fmt = req.format.lower()
+    if fmt == "md":
+        from backend.api.knowledge import _convert_to_md
+        content = _convert_to_md(text, title)
+        ext = "md"
+    else:
+        content = text
+        ext = "txt"
+
+    # 分片
+    from backend.api.knowledge import _chunk_text
+    chunks = _chunk_text(content)
+    total_pages = max(1, len(chunks))
+
+    # 写入知识库
+    file_id = f"file-{uuid.uuid4().hex[:16]}"
+    import_group_id = f"group-{uuid.uuid4().hex[:12]}"
+    file_name = f"{title}.{ext}"
+
+    from backend.config import UPLOAD_DIR
+    UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+    file_path = UPLOAD_DIR / f"{file_id}.{ext}"
+    file_path.write_text(content, encoding="utf-8")
+
+    file_size = len(content.encode("utf-8"))
+    encrypted_path = cipher.encrypt(str(file_path)) if cipher else str(file_path)
+
+    db.conn.execute(
+        "INSERT INTO knowledge_base (file_id, file_name, file_path, file_size, total_pages, "
+        "isolate_mode, session_id, folder_id, version, original_name, import_group_id) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (file_id, file_name, encrypted_path, file_size, total_pages,
+         req.isolate_mode, req.session_id, req.folder_id, 1, file_name, import_group_id),
+    )
+    db.conn.commit()
+
+    # Embedding + FAISS
+    from backend.services.llm_service import get_llm_service
+    from backend.services.rag_service import RAGService
+    llm = get_llm_service()
+    embeddings = await llm.embed(chunks)
+
+    indexed_count = 0
+    if embeddings and len(embeddings) == len(chunks):
+        import numpy as np
+        rag = RAGService()
+        indexed_count = rag.index_document(
+            file_id=file_id,
+            file_name=file_name,
+            chunks=chunks,
+            embeddings=[np.array(e, dtype=np.float32) for e in embeddings],
+        )
+
+    get_audit_logger().log(LogType.KNOWLEDGE_UPLOAD, {
+        "file_id": file_id,
+        "file_name": file_name,
+        "source": "asr_import",
+        "archive_id": req.archive_id,
+        "format": fmt,
+        "indexed_count": indexed_count,
+    }, f"ASR import to KB: {audio_name} → {file_name}")
+
+    return {
+        "code": StateCode.IDLE.value,
+        "status": StateCode.IDLE.name,
+        "data": {
+            "file_id": file_id,
+            "file_name": file_name,
+            "total_pages": total_pages,
+            "chunk_count": len(chunks),
+            "indexed_count": indexed_count,
+            "isolate_mode": req.isolate_mode,
+            "source_archive_id": req.archive_id,
+        },
+    }
+
+
+# ---- ASR 结果导出（txt / md / docx） ----
+
+class ASRExportRequest(BaseModel):
+    archive_id: str = Field(..., description="ASR 归档 ID")
+    format: str = Field(default="txt", description="导出格式: txt | md | docx")
+
+
+@router.post("/export")
+async def export_transcription(req: ASRExportRequest):
+    """导出 ASR 转写结果为指定格式。"""
+    db = DatabaseManager.get_instance()
+    cipher = db.cipher
+
+    row = db.conn.execute(
+        "SELECT audio_name, transcribed_text FROM asr_archive WHERE archive_id = ?",
+        (req.archive_id,),
+    ).fetchone()
+    if not row:
+        return {
+            "code": StateCode.ERROR.value,
+            "status": StateCode.ERROR.name,
+            "message": "ASR 归档记录不存在",
+        }
+
+    audio_name, enc_text = row
+    text = cipher.decrypt(enc_text) if cipher else enc_text
+    base_name = Path(audio_name).stem
+    fmt = req.format.lower()
+
+    import tempfile
+
+    if fmt == "md":
+        from backend.api.knowledge import _convert_to_md
+        output = _convert_to_md(text, base_name)
+        tmp = tempfile.NamedTemporaryFile(mode="w", suffix=".md", delete=False, encoding="utf-8")
+        tmp.write(output)
+        tmp.close()
+        return FileResponse(path=tmp.name, filename=f"{base_name}.md", media_type="text/markdown")
+
+    elif fmt == "docx":
+        from backend.api.knowledge import _convert_to_docx
+        output_bytes = _convert_to_docx(text, base_name)
+        tmp = tempfile.NamedTemporaryFile(suffix=".docx", delete=False)
+        tmp.write(output_bytes)
+        tmp.close()
+        return FileResponse(
+            path=tmp.name,
+            filename=f"{base_name}.docx",
+            media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        )
+
+    else:  # txt
+        tmp = tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False, encoding="utf-8")
+        tmp.write(text)
+        tmp.close()
+        return FileResponse(path=tmp.name, filename=f"{base_name}.txt", media_type="text/plain")
