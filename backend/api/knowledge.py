@@ -21,14 +21,6 @@ from backend.state_machine import StateCode, get_state_manager
 router = APIRouter(prefix="/api/v1/knowledge", tags=["knowledge"])
 
 
-class UploadRequest(BaseModel):
-    api_version: str = "v1"
-    file_payload_token: str = Field(..., description="安全层映射的 file_id token")
-    file_type: str = Field(..., description="文件类型: pdf, docx, txt")
-    isolate_mode: str = Field(default="session", description="隔离模式: global | session | temp")
-    session_id: str | None = Field(default=None, description="isolate_mode=session 时必填")
-
-
 def _extract_text_from_txt(file_path: Path) -> str:
     for enc in ["utf-8", "gbk", "gb2312", "latin-1"]:
         try:
@@ -293,12 +285,11 @@ async def delete_file(file_id: str):
 
     # Step 1: 原子打标
     db.conn.execute("UPDATE knowledge_base SET is_deleted = 1 WHERE file_id = ?", (file_id,))
+    # Step 1.5: 清除 rag_chunks (主线程同步，避免多线程操作 SQLite)
+    db.conn.execute("DELETE FROM rag_chunks WHERE file_id = ?", (file_id,))
     db.conn.commit()
 
-    # Step 2: 异步物理擦除 (ThreadPoolExecutor)
-    from concurrent.futures import ThreadPoolExecutor
-    executor = ThreadPoolExecutor(max_workers=1)
-
+    # Step 2: 异步物理擦除 — 仅 os.remove 放入线程池
     cipher = db.cipher
     encrypted_path = row[0]
     try:
@@ -306,19 +297,14 @@ async def delete_file(file_id: str):
     except Exception:
         actual_path = encrypted_path
 
-    def _physical_delete():
+    def _erase_file(path):
         try:
-            os.remove(actual_path)
+            os.remove(path)
         except OSError:
             pass
-        # 清除 rag_chunks
-        try:
-            db.conn.execute("DELETE FROM rag_chunks WHERE file_id = ?", (file_id,))
-            db.conn.commit()
-        except Exception:
-            pass
 
-    executor.submit(_physical_delete)
+    from concurrent.futures import ThreadPoolExecutor
+    ThreadPoolExecutor(max_workers=1).submit(_erase_file, actual_path)
 
     get_audit_logger().log(LogType.KNOWLEDGE_DELETE, {
         "file_id": file_id,

@@ -169,7 +169,10 @@
           <div id="asr-result-panel" class="asr-result-panel hidden">
             <div class="asr-result-header">
               <span>转写结果</span>
-              <span id="asr-result-duration"></span>
+              <div style="display:flex;align-items:center;gap:12px">
+                <span id="asr-result-duration"></span>
+                <button id="asr-export-btn" class="btn btn-small" onclick="exportASRText()">导出 TXT</button>
+              </div>
             </div>
             <div id="asr-result-text" class="asr-result-text"></div>
           </div>
@@ -188,7 +191,7 @@
       <section id="page-audit" class="page">
         <div class="page-header">
           <h2>审计日志</h2>
-          <button id="export-logs-btn" class="btn btn-secondary">导出 JSON</button>
+          <button id="export-logs-btn" class="btn btn-secondary">一键导出 (JSON+CSV)</button>
         </div>
         <div id="audit-table-wrapper" class="table-wrapper">
           <table id="audit-table" class="audit-table">

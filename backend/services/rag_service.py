@@ -41,17 +41,31 @@ class RAGService:
         self._dim = 0
 
     def _ensure_loaded(self) -> bool:
-        """懒加载 FAISS 索引。"""
+        """懒加载 FAISS 索引。自动迁移旧 IndexFlatIP → IndexIDMap。"""
         if self._index is not None:
             return True
         try:
             import faiss
             if FAISS_INDEX_PATH.exists():
-                self._index = faiss.read_index(str(FAISS_INDEX_PATH))
-                self._dim = self._index.d
-                if FAISS_META_PATH.exists():
-                    with open(FAISS_META_PATH, "rb") as f:
-                        self._metadata = pickle.load(f)
+                index = faiss.read_index(str(FAISS_INDEX_PATH))
+                self._dim = index.d
+                # 迁移旧 IndexFlatIP → IndexIDMap（支持 remove_ids）
+                if isinstance(index, faiss.IndexFlatIP) and not isinstance(index, faiss.IndexIDMap):
+                    ntotal = index.ntotal
+                    new_index = faiss.IndexIDMap(faiss.IndexFlatIP(self._dim))
+                    if ntotal > 0 and FAISS_META_PATH.exists():
+                        with open(FAISS_META_PATH, "rb") as f:
+                            self._metadata = pickle.load(f)
+                        vectors = index.reconstruct_n(0, ntotal)
+                        ids = np.arange(ntotal, dtype=np.int64)
+                        new_index.add_with_ids(vectors, ids)
+                    self._index = new_index
+                    self._save()
+                else:
+                    self._index = index
+                    if FAISS_META_PATH.exists():
+                        with open(FAISS_META_PATH, "rb") as f:
+                            self._metadata = pickle.load(f)
                 return True
         except Exception:
             pass
@@ -63,7 +77,7 @@ class RAGService:
             DATA_DIR.mkdir(parents=True, exist_ok=True)
             FAISS_INDEX_PATH.parent.mkdir(parents=True, exist_ok=True)
             self._dim = dim
-            self._index = faiss.IndexFlatIP(dim)
+            self._index = faiss.IndexIDMap(faiss.IndexFlatIP(dim))
             self._metadata = {}
         except ImportError:
             pass
@@ -224,11 +238,12 @@ class RAGService:
         if emb_array.shape[1] != self._dim:
             return 0
 
-        # 记录当前索引大小
+        # 分配顺序 ID（IndexIDMap 要求显式 ID）
         start_idx = self._index.ntotal
+        ids = np.arange(start_idx, start_idx + len(emb_array), dtype=np.int64)
 
         # 写入 FAISS
-        self._index.add(emb_array)
+        self._index.add_with_ids(emb_array, ids)
 
         # 写入元数据 + rag_chunks 表
         db = DatabaseManager.get_instance()
@@ -277,50 +292,27 @@ class RAGService:
         if self._index is None:
             return False
 
-        # 找到该文档的所有 FAISS 向量 ID
-        ids_to_remove = []
-        for faiss_id, meta in list(self._metadata.items()):
-            if meta.get("file_id") == file_id:
-                ids_to_remove.append(faiss_id)
+        ids_to_remove = [
+            faiss_id for faiss_id, meta in self._metadata.items()
+            if meta.get("file_id") == file_id
+        ]
 
         if not ids_to_remove:
             return True
 
         try:
-            import faiss
-            # FAISS IndexFlatIP 不支持 remove，需要重建索引
-            if ids_to_remove:
-                self._rebuild_index_excluding(ids_to_remove)
+            self._index.remove_ids(np.array(ids_to_remove, dtype=np.int64))
+            for faiss_id in ids_to_remove:
+                self._metadata.pop(faiss_id, None)
+            self._save()
         except Exception:
             return False
 
         return True
 
-    def _rebuild_index_excluding(self, exclude_ids: set[int]) -> None:
-        """重建 FAISS 索引，排除指定向量 ID。"""
-        import faiss
-
-        remaining_meta = {}
-        vectors = []
-        for faiss_id, meta in self._metadata.items():
-            if faiss_id not in exclude_ids:
-                remaining_meta[faiss_id] = meta
-                # FAISS IndexFlatIP 不能直接获取向量，这里通过 metadata 重建
-                # 实际场景中应该从 FAISS 索引中提取向量
-
-        # 简化: 直接移除元数据条目
-        for eid in exclude_ids:
-            self._metadata.pop(eid, None)
-
-        self._save()
-
     @staticmethod
     def purge_temp_for_session(session_id: str) -> int:
-        """销毁指定会话的所有 Temp 模式文档 (DB + FAISS + 磁盘)。
-
-        Returns:
-            清理的文档数量
-        """
+        """销毁指定会话的所有 Temp 模式文档 (DB + FAISS + 磁盘)。"""
         db = DatabaseManager.get_instance()
         rag = RAGService()
 
@@ -330,41 +322,36 @@ class RAGService:
             (session_id,),
         ).fetchall()
 
+        files_to_erase: list[str] = []
         count = 0
         for file_id, encrypted_path in rows:
-            # 1. 从 FAISS 移除
             rag.remove_document(file_id)
-
-            # 2. 从 rag_chunks 表删除
             db.conn.execute("DELETE FROM rag_chunks WHERE file_id = ?", (file_id,))
-
-            # 3. 标记 knowledge_base 为已删除
             db.conn.execute(
                 "UPDATE knowledge_base SET is_deleted = 1 WHERE file_id = ?", (file_id,)
             )
-
-            # 4. 异步物理删除磁盘文件
-            from concurrent.futures import ThreadPoolExecutor
-            executor = ThreadPoolExecutor(max_workers=1)
-
             cipher = db.cipher
             try:
-                actual_path = cipher.decrypt(encrypted_path) if cipher else encrypted_path
+                actual = cipher.decrypt(encrypted_path) if cipher else encrypted_path
             except Exception:
-                actual_path = encrypted_path
-
-            def _erase(path):
-                import os
-                try:
-                    os.remove(path)
-                except OSError:
-                    pass
-
-            executor.submit(_erase, actual_path)
+                actual = encrypted_path
+            files_to_erase.append(actual)
             count += 1
 
         if count > 0:
             db.conn.commit()
+
+        # 异步物理删除 — 仅 os.remove 放入线程池
+        if files_to_erase:
+            from concurrent.futures import ThreadPoolExecutor
+            def _erase_files(paths):
+                import os
+                for p in paths:
+                    try:
+                        os.remove(p)
+                    except OSError:
+                        pass
+            ThreadPoolExecutor(max_workers=1).submit(_erase_files, files_to_erase)
 
         return count
 

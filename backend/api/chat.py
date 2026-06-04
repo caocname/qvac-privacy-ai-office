@@ -285,9 +285,8 @@ async def send_message(req: ChatRequest):
     enhanced_context = "\n\n---\n\n".join(enhanced_context_parts) if enhanced_context_parts else ""
 
     # 5. 流式推理
-    state_mgr.transition(StateCode.LLM_GENERATING)
-
     async def event_stream():
+        state_mgr.transition(StateCode.LLM_GENERATING)
         llm_svc = get_llm_service()
         full_response = ""
 
@@ -317,7 +316,6 @@ async def send_message(req: ChatRequest):
                             "memory_truncated": assembly.memory_truncated,
                             "truncated_message_ids": assembly.truncated_message_ids,
                             "stats": stats,
-                            "_debug": chunk.get("_debug"),
                         })
                         yield f"data: {done_payload}\n\n"
                         logger.log(LogType.INFERENCE_SAMPLE, {

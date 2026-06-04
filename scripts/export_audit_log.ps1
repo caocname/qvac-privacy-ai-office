@@ -8,7 +8,7 @@ $Timestamp = Get-Date -Format "yyyyMMdd-HHmmss"
 Write-Host "=== 审计日志导出 ===" -ForegroundColor Cyan
 
 try {
-    $Response = Invoke-RestMethod -Uri "$BackendUrl/api/v1/log/export?page=1&page_size=10000&api_version=v1" -Method Get -TimeoutSec 30
+    $Response = Invoke-RestMethod -Uri "$BackendUrl/api/v1/log/export/all?format=json&api_version=v1" -Method Get -TimeoutSec 30
     $TotalRecords = $Response.total_records
     Write-Host "  总记录数: $TotalRecords" -ForegroundColor Gray
 

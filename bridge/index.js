@@ -181,7 +181,6 @@ const server = http.createServer(async (req, res) => {
           done: true,
           full_text: fullText,
           stats: stats,
-          _debug: null,
         })}\n\n`
       );
     } catch (err) {

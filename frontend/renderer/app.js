@@ -126,6 +126,7 @@ async function checkHealth() {
         chatInput.disabled = false;
         if (!currentSessionId) initSession();
         checkSetupStatus();
+        pollCredentialStatus();
       }
       return;
     }
@@ -329,7 +330,7 @@ async function initSession() {
       return;
     }
   } catch (_) {}
-  createNewSession();
+  await createNewSession();
 }
 
 async function createNewSession() {
@@ -452,6 +453,12 @@ async function switchToSession(sessionId) {
   } catch (_) {}
   currentSessionId = sessionId;
   updateSessionListActive();
+  // 切换到对话页
+  document.querySelectorAll(".nav-item").forEach(function (n) { n.classList.remove("active"); });
+  var chatNav = document.querySelector('.nav-item[data-page="chat"]');
+  if (chatNav) chatNav.classList.add("active");
+  Object.values(pages).forEach(function (p) { if (p) p.classList.remove("active"); });
+  if (pages.chat) pages.chat.classList.add("active");
   loadChatHistory(sessionId);
 }
 
@@ -519,7 +526,11 @@ chatInput.addEventListener("keydown", function (e) {
 
 async function sendMessage() {
   var text = chatInput.value.trim();
-  if (!text || !connected || !currentSessionId || currentStreaming) return;
+  if (!text || !connected || currentStreaming) return;
+  if (!currentSessionId) {
+    await initSession();
+    if (!currentSessionId) { showToast("会话初始化失败，请稍后重试", "error"); return; }
+  }
 
   chatInput.value = "";
   chatInput.disabled = true;
@@ -571,9 +582,6 @@ async function sendMessage() {
             break;
           }
           if (chunk.done) {
-            if (chunk._debug) {
-              console.log("[QVAC Debug]", JSON.stringify(chunk._debug));
-            }
             fullText = chunk.full_text || fullText;
             contentEl.textContent = fullText;
             if (chunk.memory_truncated) {
@@ -940,7 +948,11 @@ function startASRPolling(taskId) {
         resultPanel.classList.remove("hidden");
         document.getElementById("asr-result-duration").textContent =
           "时长: " + (data.data.duration || 0).toFixed(1) + "s";
-        document.getElementById("asr-result-text").textContent = data.data.transcribed_text || "(空)";
+        var transcribedText = data.data.transcribed_text || "(空)";
+        document.getElementById("asr-result-text").textContent = transcribedText;
+        // 保存结果供导出
+        window._lastASRText = transcribedText;
+        window._lastASRAudioName = data.data.audio_name || "transcription";
 
         loadASRArchives();
         showToast("ASR 转写完成", "success");
@@ -951,6 +963,20 @@ function startASRPolling(taskId) {
       }
     } catch (_) {}
   }, 2000);
+}
+
+function exportASRText() {
+  var text = window._lastASRText || "";
+  if (!text || text === "(空)") { showToast("暂无可导出的转写结果", "warn"); return; }
+  var name = (window._lastASRAudioName || "transcription").replace(/\.[^.]+$/, "");
+  var blob = new Blob([text], { type: "text/plain;charset=utf-8" });
+  var url = URL.createObjectURL(blob);
+  var a = document.createElement("a");
+  a.href = url;
+  a.download = name + ".txt";
+  a.click();
+  URL.revokeObjectURL(url);
+  showToast("转写结果已导出为 " + name + ".txt", "success");
 }
 
 async function loadASRArchives() {
@@ -1023,21 +1049,47 @@ function renderAuditPagination(total, page) {
 }
 
 document.getElementById("export-logs-btn").addEventListener("click", async function () {
+  var btn = document.getElementById("export-logs-btn");
+  btn.disabled = true;
+  btn.textContent = "导出中...";
+
   try {
-    var resp = await fetch(BACKEND_URL + "/api/v1/log/export?page=1&page_size=1000&api_version=v1");
+    var resp = await fetch(BACKEND_URL + "/api/v1/log/export/all?format=json&api_version=v1");
     var data = await resp.json();
-    var blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
-    var url = URL.createObjectURL(blob);
-    var a = document.createElement("a");
-    a.href = url;
-    a.download = "audit-log-" + new Date().toISOString().slice(0, 10) + ".json";
-    a.click();
-    URL.revokeObjectURL(url);
-    showToast("审计日志已导出", "success");
+    var logs = data.logs || [];
+    var timestamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-");
+
+    // JSON
+    var jsonBlob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+    downloadBlob(jsonBlob, "audit-log-" + timestamp + ".json");
+
+    // CSV (client-side generation)
+    var csvHeader = "log_id,absolute_datetime,relative_timestamp_ms,log_type,metrics,payload_snapshot\n";
+    var csvLines = logs.map(function (l) {
+      var payload = (l.payload_snapshot || "").replace(/"/g, '""');
+      var metrics = l.metrics ? JSON.stringify(l.metrics).replace(/"/g, '""') : "";
+      return '"' + l.log_id + '","' + l.absolute_datetime + '",' + l.relative_timestamp_ms + ',"' + l.log_type + '","' + metrics + '","' + payload + '"';
+    });
+    var csvBlob = new Blob([csvHeader + csvLines.join("\n")], { type: "text/csv" });
+    setTimeout(function () { downloadBlob(csvBlob, "audit-log-" + timestamp + ".csv"); }, 300);
+
+    showToast("已导出 JSON + CSV (" + logs.length + " 条)", "success");
   } catch (_) {
     showToast("导出失败", "error");
   }
+
+  btn.disabled = false;
+  btn.textContent = "一键导出 (JSON+CSV)";
 });
+
+function downloadBlob(blob, filename) {
+  var url = URL.createObjectURL(blob);
+  var a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
 
 // ---- 系统状态 ----
 async function loadSystemState() {
@@ -1150,6 +1202,27 @@ async function checkLockState() {
 }
 
 setInterval(checkLockState, 3000);
+
+// ---- 凭据丢失自动检测 ----
+var credentialLostNotified = false;
+
+async function pollCredentialStatus() {
+  try {
+    var resp = await fetch(BACKEND_URL + "/api/v1/system/credential/status");
+    var data = await resp.json();
+    if (data.data && !data.data.credential_present) {
+      if (!credentialLostNotified) {
+        credentialLostNotified = true;
+        showToast("检测到加密凭据丢失！请立即导入恢复密钥", "error");
+        document.getElementById("credential-modal").classList.remove("hidden");
+      }
+    } else {
+      credentialLostNotified = false;
+    }
+  } catch (_) {}
+}
+
+setInterval(pollCredentialStatus, 30000);
 
 // ---- 工具函数 ----
 function escapeHtml(text) {

@@ -127,7 +127,24 @@ class LogDatabase:
                 "LIMIT ? OFFSET ?",
                 (page_size, offset),
             ).fetchall()
+        return self._rows_to_items(rows), total
 
+    def query_all(self) -> tuple[list[LogExportItem], int]:
+        """返回全部日志记录（无分页），用于一键批量导出。"""
+        if not self._conn:
+            return [], 0
+        with self._lock:
+            total = self._conn.execute(
+                "SELECT COUNT(*) FROM audit_logs"
+            ).fetchone()[0]
+            rows = self._conn.execute(
+                "SELECT log_id, absolute_datetime, relative_timestamp_ms, "
+                "log_type, metrics, payload_snapshot_enc "
+                "FROM audit_logs ORDER BY relative_timestamp_ms DESC"
+            ).fetchall()
+        return self._rows_to_items(rows), total
+
+    def _rows_to_items(self, rows) -> list[LogExportItem]:
         items: list[LogExportItem] = []
         for row in rows:
             log_id, abs_dt, rel_ms, log_type, metrics_json, enc_payload = row
@@ -156,4 +173,4 @@ class LogDatabase:
                     payload_snapshot=payload,
                 )
             )
-        return items, total
+        return items
