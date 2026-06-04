@@ -1742,12 +1742,13 @@ async function batchKnowledgeAction(action) {
       } catch (_) { showToast("批量删除失败", "error"); }
     });
   } else if (action === "translate") {
+    var targetLang2 = document.getElementById("tr-target-lang-select").value || "zh";
     showToast("正在批量翻译 " + fileIds.length + " 个文档...", "success");
     try {
       var resp = await fetch(BACKEND_URL + "/api/v1/knowledge/batch/translate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ file_ids: fileIds, source_lang: "auto", target_lang: "zh" }),
+        body: JSON.stringify({ file_ids: fileIds, source_lang: "auto", target_lang: targetLang2 }),
       });
       var data = await resp.json();
       if (data.data && data.data.results) {
@@ -1762,76 +1763,297 @@ async function batchKnowledgeAction(action) {
         document.querySelector(".nav-item[data-page=translate]").click();
       }
     } catch (_) { showToast("批量翻译失败", "error"); }
+  } else if (action === "export") {
+    var format = document.getElementById("kb-batch-format") ? document.getElementById("kb-batch-format").value : "txt";
+    try {
+      var resp2 = await fetch(BACKEND_URL + "/api/v1/knowledge/batch/export", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ file_ids: fileIds, format: format }),
+      });
+      if (resp2.ok) {
+        var blob = await resp2.blob();
+        downloadBlob(blob, "knowledge_batch_export.zip");
+        showToast("批量导出完成", "success");
+      } else {
+        var errData = await resp2.json();
+        showToast(errData.message || "批量导出失败", "error");
+      }
+    } catch (_) { showToast("批量导出失败", "error"); }
   }
 }
 
-// ---- TTS ----
+// ---- 知识库批量导入（本地文件） ----
+async function batchImportFiles(input) {
+  var files = input.files;
+  if (!files || files.length === 0) return;
+  var isolateMode = "session";
+  var folderId = document.getElementById("kb-folder-select").value;
+  var uploaded = 0;
+  var failed = 0;
+
+  for (var i = 0; i < files.length; i++) {
+    var file = files[i];
+    var formData = new FormData();
+    formData.append("file", file);
+    formData.append("isolate_mode", isolateMode);
+    formData.append("session_id", currentSessionId || "");
+    if (folderId) formData.append("folder_id", folderId);
+
+    try {
+      var resp = await fetch(BACKEND_URL + "/api/v1/knowledge/upload", {
+        method: "POST",
+        body: formData,
+      });
+      var data = await resp.json();
+      if (data.code === 100) { uploaded++; }
+      else { failed++; }
+    } catch (_) { failed++; }
+  }
+
+  showToast("导入完成: " + uploaded + " 成功, " + failed + " 失败", uploaded > 0 ? "success" : "error");
+  loadKnowledgeList();
+  loadFolderTree();
+  input.value = "";
+}
+
+// ---- TTS 播放器 (Web Speech API) ----
+var ttsPlayerState = {
+  playing: false,
+  paused: false,
+  text: "",
+  currentCharIndex: 0,
+  totalChars: 0,
+};
+
+function initTTSPlayer() {
+  var voiceSelect = document.getElementById("tts-voice-select");
+
+  function loadVoices() {
+    var voices = window.speechSynthesis.getVoices();
+    if (voices.length === 0) return;
+    voiceSelect.innerHTML = voices.map(function (v, i) {
+      var label = v.name + " (" + v.lang + ")";
+      var sel = v.lang.indexOf("zh") !== -1 ? " selected" : (v.lang.indexOf("en") !== -1 && voiceSelect.innerHTML.indexOf("selected") === -1 ? " selected" : "");
+      return '<option value="' + i + '"' + sel + '>' + label + '</option>';
+    }).join("");
+  }
+
+  loadVoices();
+  window.speechSynthesis.onvoiceschanged = loadVoices;
+
+  document.getElementById("tts-btn-play").addEventListener("click", function () {
+    if (ttsPlayerState.playing && !ttsPlayerState.paused) {
+      window.speechSynthesis.pause();
+      ttsPlayerState.paused = true;
+      document.getElementById("tts-btn-play").textContent = "▶";
+      document.getElementById("tts-btn-play").classList.remove("tts-play-btn");
+      document.getElementById("tts-btn-play").style.background = "var(--bg-tertiary)";
+    } else if (ttsPlayerState.paused) {
+      window.speechSynthesis.resume();
+      ttsPlayerState.paused = false;
+      document.getElementById("tts-btn-play").textContent = "⏸";
+      document.getElementById("tts-btn-play").classList.add("tts-play-btn");
+      document.getElementById("tts-btn-play").style.background = "";
+    } else {
+      startTTSPlayback();
+    }
+  });
+
+  document.getElementById("tts-btn-stop").addEventListener("click", stopTTS);
+
+  document.getElementById("tts-speed").addEventListener("input", function () {
+    var speed = parseFloat(this.value);
+    document.getElementById("tts-speed-label").textContent = speed.toFixed(2) + "x";
+    if (ttsPlayerState.playing && !ttsPlayerState.paused) {
+      var pos = ttsPlayerState.currentCharIndex;
+      window.speechSynthesis.cancel();
+      ttsPlayerState.currentCharIndex = pos;
+      ttsPlayerState.playing = false;
+      startTTSPlayback();
+    }
+  });
+
+  document.getElementById("tts-player-close-btn").addEventListener("click", function () {
+    stopTTS();
+    document.getElementById("tts-player-modal").classList.add("hidden");
+  });
+
+  document.querySelector("#tts-player-modal .modal-mask").addEventListener("click", function () {
+    stopTTS();
+    document.getElementById("tts-player-modal").classList.add("hidden");
+  });
+}
+
+function stopTTS() {
+  window.speechSynthesis.cancel();
+  ttsPlayerState.playing = false;
+  ttsPlayerState.paused = false;
+  ttsPlayerState.currentCharIndex = 0;
+  document.getElementById("tts-btn-play").textContent = "▶";
+  document.getElementById("tts-btn-play").classList.remove("tts-play-btn");
+  document.getElementById("tts-btn-play").style.background = "";
+  document.getElementById("tts-progress-bar").style.width = "0%";
+  document.getElementById("tts-time-label").textContent = "00:00 / 00:00";
+}
+
+function startTTSPlayback() {
+  var text = ttsPlayerState.text.substring(ttsPlayerState.currentCharIndex);
+  if (!text.trim()) {
+    stopTTS();
+    return;
+  }
+
+  var voices = window.speechSynthesis.getVoices();
+  var voiceIdx = parseInt(document.getElementById("tts-voice-select").value) || 0;
+  var speed = parseFloat(document.getElementById("tts-speed").value) || 1.0;
+
+  var utterance = new SpeechSynthesisUtterance(text);
+  if (voices[voiceIdx]) utterance.voice = voices[voiceIdx];
+  utterance.rate = speed;
+  utterance.volume = 1.0;
+
+  utterance.onend = function () {
+    ttsPlayerState.playing = false;
+    ttsPlayerState.paused = false;
+    ttsPlayerState.currentCharIndex = 0;
+    document.getElementById("tts-btn-play").textContent = "▶";
+    document.getElementById("tts-btn-play").classList.remove("tts-play-btn");
+    document.getElementById("tts-btn-play").style.background = "";
+    document.getElementById("tts-progress-bar").style.width = "100%";
+    updateTTSProgress(true);
+  };
+
+  utterance.onerror = function (ev) {
+    if (ev.error !== "canceled" && ev.error !== "interrupted") {
+      showToast("语音播放出错: " + ev.error, "error");
+    }
+    stopTTS();
+  };
+
+  // 用定时器估算进度 (SpeechSynthesis 不提供可靠的字边界事件)
+  var charStart = ttsPlayerState.currentCharIndex;
+  var startTime = Date.now();
+  var totalDuration = (text.length / (4 * speed)) * 1000;
+
+  utterance.onstart = function () {
+    ttsPlayerState._progressTimer = setInterval(function () {
+      var elapsed = (Date.now() - startTime) / 1000;
+      var estimatedChars = Math.min(elapsed * 4 * speed, text.length);
+      ttsPlayerState.currentCharIndex = charStart + Math.floor(estimatedChars);
+      updateTTSProgress(false);
+    }, 200);
+  };
+
+  ttsPlayerState.playing = true;
+  ttsPlayerState.paused = false;
+  document.getElementById("tts-btn-play").textContent = "⏸";
+  document.getElementById("tts-btn-play").classList.add("tts-play-btn");
+  document.getElementById("tts-btn-play").style.background = "";
+
+  window.speechSynthesis.speak(utterance);
+}
+
+function updateTTSProgress(isFinal) {
+  if (isFinal) {
+    if (ttsPlayerState._progressTimer) { clearInterval(ttsPlayerState._progressTimer); ttsPlayerState._progressTimer = null; }
+    ttsPlayerState.currentCharIndex = ttsPlayerState.totalChars;
+  }
+  var pct = ttsPlayerState.totalChars > 0 ? (ttsPlayerState.currentCharIndex / ttsPlayerState.totalChars * 100) : 0;
+  document.getElementById("tts-progress-bar").style.width = Math.min(pct, 100) + "%";
+
+  var speed = parseFloat(document.getElementById("tts-speed").value) || 1.0;
+  var charsPerSec = 4 * speed;
+  var elapsed = ttsPlayerState.totalChars > 0 ? ttsPlayerState.currentCharIndex / charsPerSec : 0;
+  var total = ttsPlayerState.totalChars > 0 ? ttsPlayerState.totalChars / charsPerSec : 0;
+  document.getElementById("tts-time-label").textContent = formatTime(elapsed) + " / " + formatTime(total);
+}
+
+function formatTime(seconds) {
+  if (seconds === Infinity || isNaN(seconds)) seconds = 0;
+  var m = Math.floor(seconds / 60);
+  var s = Math.floor(seconds % 60);
+  return (m < 10 ? "0" : "") + m + ":" + (s < 10 ? "0" : "") + s;
+}
 
 async function playTTS(fileId) {
-  showToast("正在生成语音...", "success");
   try {
-    var resp = await fetch(BACKEND_URL + "/api/v1/knowledge/tts", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ file_id: fileId, language: "zh" }),
-    });
-    if (resp.ok) {
-      var blob = await resp.blob();
-      var url = URL.createObjectURL(blob);
-      var audio = new Audio(url);
-      audio.onended = function () { URL.revokeObjectURL(url); };
-      audio.play();
-      showToast("正在播放...", "success");
+    var resp = await fetch(BACKEND_URL + "/api/v1/knowledge/document/" + fileId + "/content");
+    var data = await resp.json();
+    if (data.code === 100 && data.data && data.data.content) {
+      ttsPlayerState.text = data.data.content;
+      ttsPlayerState.totalChars = ttsPlayerState.text.length;
+      ttsPlayerState.currentCharIndex = 0;
+      document.getElementById("tts-player-title").textContent = data.data.file_name || "语音播放";
+      document.getElementById("tts-player-modal").classList.remove("hidden");
+      stopTTS();
+      startTTSPlayback();
     } else {
-      var errData = await resp.json();
-      showToast(errData.message || "TTS 失败", "error");
+      showToast("无法获取文档内容", "error");
     }
-  } catch (_) { showToast("TTS 服务不可用", "error"); }
+  } catch (_) {
+    showToast("TTS 服务不可用", "error");
+  }
 }
 
 // ---- 翻译 ----
 
 var translateHistory = [];
 var currentTranslateFileId = null;
+var currentOriginalText = "";
 
-function addTranslateHistory(fileId, fileName, translatedText) {
+function addTranslateHistory(fileId, fileName, translatedText, originalText) {
   // 去重
   translateHistory = translateHistory.filter(function (h) { return h.file_id !== fileId; });
   translateHistory.unshift({
     file_id: fileId,
     file_name: fileName,
     translated_text: translatedText,
+    original_text: originalText || "",
     time: new Date().toISOString(),
   });
   // 最多保留 50 条
   if (translateHistory.length > 50) translateHistory.pop();
 }
 
-async function translateDocument(fileId, fileName) {
-  showToast("正在翻译...", "success");
+async function translateDocument(fileId, fileName, silent) {
+  var targetLang = document.getElementById("tr-target-lang-select").value || "zh";
+  var langLabels = { zh: "中文", en: "English", ja: "日本語", ko: "한국어", fr: "Français", de: "Deutsch", es: "Español" };
+  if (!silent) showToast("正在翻译为 " + (langLabels[targetLang] || targetLang) + "...", "success");
   try {
     var resp = await fetch(BACKEND_URL + "/api/v1/knowledge/translate", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ file_id: fileId, source_lang: "auto", target_lang: "zh" }),
+      body: JSON.stringify({ file_id: fileId, source_lang: "auto", target_lang: targetLang }),
     });
     var data = await resp.json();
     if (data.code === 100 && data.data) {
-      addTranslateHistory(fileId, fileName || data.data.file_name, data.data.translated_text);
+      addTranslateHistory(fileId, fileName || data.data.file_name, data.data.translated_text, data.data.original_text);
       currentTranslateFileId = fileId;
+      currentOriginalText = data.data.original_text;
       // 更新翻译视窗
       document.getElementById("tr-source-text").textContent = data.data.original_text;
       document.getElementById("tr-target-text").textContent = data.data.translated_text;
       document.getElementById("tr-source-name").textContent = data.data.file_name;
-      showToast("翻译完成", "success");
-      // 跳转到翻译页
-      document.querySelector(".nav-item[data-page=translate]").click();
+      // 同步语言选择器显示
+      document.getElementById("tr-target-lang-select").value = targetLang;
+      if (!silent) {
+        showToast("翻译完成", "success");
+        document.querySelector(".nav-item[data-page=translate]").click();
+      }
       loadTranslateHistory();
     } else {
       showToast(data.message || "翻译失败", "error");
     }
   } catch (_) { showToast("翻译服务不可用", "error"); }
 }
+
+// 目标语言切换时自动重新翻译
+document.getElementById("tr-target-lang-select").addEventListener("change", function () {
+  if (currentTranslateFileId) {
+    translateDocument(currentTranslateFileId, "", true);
+  }
+});
 
 function loadTranslateHistory() {
   var container = document.getElementById("tr-history-list");
@@ -1851,7 +2073,8 @@ function loadTranslateItem(idx) {
   var h = translateHistory[idx];
   if (!h) return;
   currentTranslateFileId = h.file_id;
-  document.getElementById("tr-source-text").textContent = "";
+  currentOriginalText = h.original_text || "";
+  document.getElementById("tr-source-text").textContent = h.original_text || "(原文未保存，请重新翻译)";
   document.getElementById("tr-target-text").textContent = h.translated_text;
   document.getElementById("tr-source-name").textContent = h.file_name;
   loadTranslateHistory();
@@ -2022,3 +2245,6 @@ async function batchASR(action) {
     });
   }
 }
+
+// ---- 初始化 ----
+initTTSPlayer();

@@ -1088,3 +1088,83 @@ async def tts_document(req: TTSRequest):
             "status": StateCode.ERROR.name,
             "message": f"TTS 服务不可用: {str(exc)[:200]}",
         }
+
+
+# ---- 批量导出 ----
+
+class BatchExportRequest(BaseModel):
+    file_ids: list[str] = Field(..., description="文档 ID 列表")
+    format: str = Field(default="txt", description="导出格式: txt | md | docx")
+
+
+@router.post("/batch/export")
+async def batch_export(req: BatchExportRequest):
+    """批量导出文档 — 打包为 ZIP。"""
+    import tempfile
+    import zipfile
+    from fastapi.responses import FileResponse as FR
+
+    db = DatabaseManager.get_instance()
+    tmp_dir = tempfile.mkdtemp()
+    exported = 0
+
+    for file_id in req.file_ids:
+        row = db.conn.execute(
+            "SELECT file_name FROM knowledge_base WHERE file_id = ? AND is_deleted = 0",
+            (file_id,),
+        ).fetchone()
+        if not row:
+            continue
+
+        file_name = row[0]
+        base_name = Path(file_name).stem
+
+        chunks = db.conn.execute(
+            "SELECT content FROM rag_chunks WHERE file_id = ? ORDER BY chunk_index",
+            (file_id,),
+        ).fetchall()
+        full_text = "\n\n".join(c[0] for c in chunks) if chunks else ""
+        if not full_text:
+            continue
+
+        fmt = req.format.lower()
+        if fmt == "md":
+            content = _convert_to_md(full_text, base_name)
+            ext = "md"
+            fpath = os.path.join(tmp_dir, f"{base_name}.{ext}")
+            with open(fpath, "w", encoding="utf-8") as f:
+                f.write(content)
+        elif fmt == "docx":
+            content_bytes = _convert_to_docx(full_text, base_name)
+            fpath = os.path.join(tmp_dir, f"{base_name}.docx")
+            with open(fpath, "wb") as f:
+                f.write(content_bytes)
+        else:
+            content = full_text
+            ext = "txt"
+            fpath = os.path.join(tmp_dir, f"{base_name}.{ext}")
+            with open(fpath, "w", encoding="utf-8") as f:
+                f.write(content)
+        exported += 1
+
+    if exported == 0:
+        return {
+            "code": StateCode.ERROR.value,
+            "status": StateCode.ERROR.name,
+            "message": "没有找到有效的文档内容",
+        }
+
+    zip_path = os.path.join(tmp_dir, "knowledge_export.zip")
+    with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
+        for fname in os.listdir(tmp_dir):
+            fpath = os.path.join(tmp_dir, fname)
+            if fname != "knowledge_export.zip":
+                zf.write(fpath, fname)
+
+    get_audit_logger().log(LogType.SYSTEM, {
+        "event": "knowledge_batch_export",
+        "count": exported,
+        "format": fmt,
+    })
+
+    return FR(path=zip_path, filename="knowledge_batch_export.zip", media_type="application/zip")

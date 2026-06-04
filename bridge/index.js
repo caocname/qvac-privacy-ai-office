@@ -408,9 +408,15 @@ const server = http.createServer(async (req, res) => {
     }
 
     try {
-      const systemPrompt = sourceLang === "zh" && targetLang === "en"
-        ? "You are a professional translator. Translate the following Chinese text to English accurately. Only output the translation, no explanations."
-        : "你是一位专业翻译。请将以下文本准确翻译为中文。只输出译文，不要添加解释。";
+      // 动态构建翻译提示词，支持多语言
+      const LANG_NAMES = {
+        zh: "中文", en: "English", ja: "日本語", ko: "한국어",
+        fr: "Français", de: "Deutsch", es: "Español",
+      };
+      const targetName = LANG_NAMES[targetLang] || targetLang;
+      const systemPrompt = targetLang === "en"
+        ? "You are a professional translator. Translate the following text to English accurately and naturally. Only output the translation, no explanations."
+        : `你是一位专业翻译。请将以下文本准确、自然地翻译为${targetName}。只输出译文，不要添加任何解释。`;
 
       const messages = [
         { role: "system", content: systemPrompt },
