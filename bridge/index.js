@@ -95,7 +95,7 @@ const server = http.createServer(async (req, res) => {
       process.stderr.write(`[Bridge] Loading LLM via SDK: ${modelName}\n`);
       llmModelId = await loadModel({
         modelSrc: MODEL_DESCRIPTOR_MAP.llm,
-        modelConfig: { ctx_size: 8192 },
+        modelConfig: { ctx_size: 8192, device: "gpu", gpu_layers: 99 },
       });
       llmModelName = modelName;
       process.stderr.write(`[Bridge] LLM loaded — modelId=${llmModelId}\n`);
@@ -214,6 +214,7 @@ const server = http.createServer(async (req, res) => {
       process.stderr.write(`[Bridge] Loading Embedding via SDK: ${modelName}\n`);
       embedModelId = await loadModel({
         modelSrc: MODEL_DESCRIPTOR_MAP.embedding,
+        modelConfig: { device: "gpu", gpu_layers: 99 },
       });
       embedModelName = modelName;
       process.stderr.write(`[Bridge] Embedding loaded — modelId=${embedModelId}\n`);
@@ -278,6 +279,7 @@ const server = http.createServer(async (req, res) => {
         process.stderr.write(`[Bridge] Loading Whisper model...\n`);
         modelId = await loadModel({
           modelSrc: WHISPER_BASE_Q0F16,
+          modelConfig: { contextParams: { use_gpu: true } },
         });
         whisperModelId = modelId;
         whisperModelName = "ggml-base.bin";
