@@ -16,16 +16,20 @@ import {
   unloadModel,
   completion,
   embed,
+  transcribe,
   cancel,
   LLAMA_3_2_1B_INST_Q4_0,
   EMBEDDINGGEMMA_300M_Q4_0,
+  WHISPER_BASE_Q0F16,
 } from "@qvac/sdk";
 
 // ---- Model state ----
 let llmModelId = null;
 let embedModelId = null;
+let whisperModelId = null;
 let llmModelName = "";
 let embedModelName = "";
+let whisperModelName = "";
 
 // Map Python backend model names to SDK model descriptors
 const MODEL_DESCRIPTOR_MAP = {
@@ -73,6 +77,8 @@ const server = http.createServer(async (req, res) => {
         llm_model: llmModelName,
         embed_loaded: embedModelId !== null,
         embed_model: embedModelName,
+        whisper_loaded: whisperModelId !== null,
+        whisper_model: whisperModelName,
       },
     });
   }
@@ -247,7 +253,52 @@ const server = http.createServer(async (req, res) => {
       llm_model: llmModelName,
       embed_loaded: embedModelId !== null,
       embed_model: embedModelName,
+      whisper_loaded: whisperModelId !== null,
+      whisper_model: whisperModelName,
     });
+  }
+
+  // ---- ASR Transcribe ----
+  if (url.pathname === "/api/asr/transcribe" && req.method === "POST") {
+    const body = await readBody(req);
+    const audioPath = body.audio_path;
+    const language = body.language || "zh";
+
+    if (!audioPath) {
+      return json(res, 400, { error: "audio_path is required" });
+    }
+
+    let modelId = whisperModelId;
+    // 懒加载 whisper 模型
+    if (!modelId) {
+      try {
+        process.stderr.write(`[Bridge] Loading Whisper model...\n`);
+        modelId = await loadModel({
+          modelSrc: WHISPER_BASE_Q0F16,
+        });
+        whisperModelId = modelId;
+        whisperModelName = "ggml-base.bin";
+        process.stderr.write(`[Bridge] Whisper loaded — modelId=${modelId}\n`);
+      } catch (err) {
+        process.stderr.write(`[Bridge] Whisper load error: ${err.message}\n`);
+        return json(res, 500, { error: "Failed to load whisper model: " + err.message });
+      }
+    }
+
+    try {
+      process.stderr.write(`[Bridge] Transcribing: ${audioPath} (lang=${language})\n`);
+      const result = await transcribe({
+        modelId,
+        audioChunk: audioPath,
+        prompt: language === "zh" ? "以下是中文普通话。" : "",
+      });
+      const text = typeof result === "string" ? result : (result.text || "");
+      process.stderr.write(`[Bridge] Transcription done — ${text.length} chars\n`);
+      return json(res, 200, { text });
+    } catch (err) {
+      process.stderr.write(`[Bridge] Transcribe error: ${err.message}\n`);
+      return json(res, 500, { error: err.message });
+    }
   }
 
   // 404
@@ -268,6 +319,7 @@ process.on("SIGINT", async () => {
   try {
     if (llmModelId) await unloadModel({ modelId: llmModelId });
     if (embedModelId) await unloadModel({ modelId: embedModelId });
+    if (whisperModelId) await unloadModel({ modelId: whisperModelId });
   } catch {}
   server.close();
   process.exit(0);

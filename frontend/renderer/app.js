@@ -66,7 +66,16 @@ function showConfirm(title, msg, onConfirm) {
 
   function handler() {
     cleanup();
-    onConfirm();
+    // 支持 async onConfirm — 关闭按钮在回调期间禁用
+    yesBtn.disabled = true;
+    yesBtn.textContent = "处理中...";
+    var result = onConfirm();
+    if (result && typeof result.then === "function") {
+      result.catch(function () {}).finally(function () {
+        yesBtn.disabled = false;
+        yesBtn.textContent = "确认";
+      });
+    }
   }
 
   function cleanup2() {
@@ -277,7 +286,15 @@ function renderSessionList(sessions) {
     var title = document.createElement("span");
     title.className = "session-title";
     title.textContent = s.title || "会话";
+    title.title = "双击重命名";
     li.appendChild(title);
+
+    // 双击重命名
+    title.addEventListener("dblclick", function (e) {
+      e.stopPropagation();
+      e.preventDefault();
+      startSessionRename(s.session_id, title);
+    });
 
     var closeBtn = document.createElement("button");
     closeBtn.className = "session-close-btn";
@@ -296,6 +313,42 @@ function renderSessionList(sessions) {
   });
 }
 
+function startSessionRename(sessionId, titleEl) {
+  var oldTitle = titleEl.textContent;
+  var input = document.createElement("input");
+  input.type = "text";
+  input.className = "session-rename-input";
+  input.value = oldTitle;
+  input.maxLength = 64;
+
+  titleEl.replaceWith(input);
+  input.focus();
+  input.select();
+
+  function finish() {
+    var newTitle = input.value.trim() || oldTitle;
+    input.replaceWith(titleEl);
+    titleEl.textContent = newTitle;
+    // 提交到后端
+    if (newTitle !== oldTitle) {
+      fetch(BACKEND_URL + "/api/v1/chat/session/rename?session_id=" + sessionId + "&title=" + encodeURIComponent(newTitle), {
+        method: "POST",
+      }).then(function () {
+        showToast("会话已重命名", "success");
+      }).catch(function () {
+        titleEl.textContent = oldTitle;
+        showToast("重命名失败", "error");
+      });
+    }
+  }
+
+  input.addEventListener("blur", finish);
+  input.addEventListener("keydown", function (e) {
+    if (e.key === "Enter") { e.preventDefault(); input.blur(); }
+    if (e.key === "Escape") { input.value = oldTitle; input.blur(); }
+  });
+}
+
 async function switchToSession(sessionId) {
   if (sessionId === currentSessionId) return;
   try {
@@ -307,22 +360,26 @@ async function switchToSession(sessionId) {
 }
 
 async function closeSession(sessionId) {
-  showConfirm("关闭会话", "关闭此会话将清理所有临时文档。确认？", async function () {
+  showConfirm("关闭会话", "关闭此会话将永久删除会话及所有聊天记录。确认？", async function () {
+    var ok = false;
     try {
-      await fetch(BACKEND_URL + "/api/v1/chat/session/close?session_id=" + sessionId);
+      var resp = await fetch(BACKEND_URL + "/api/v1/chat/session/close?session_id=" + sessionId, { method: "POST" });
+      var data = await resp.json();
+      ok = data.code === 100;
     } catch (_) {}
+    if (!ok) { showToast("关闭会话失败", "error"); return; }
     if (sessionId === currentSessionId) {
       currentSessionId = null;
-      chatMessages.innerHTML = '<div class="chat-placeholder"><p>会话已关闭</p></div>';
+      chatMessages.innerHTML = '<div class="chat-placeholder"><div class="placeholder-icon"><svg viewBox="0 0 24 24" width="48" height="48"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" fill="currentColor" opacity="0.3"/></svg></div><p>开始离线隐私对话</p><p class="sub-text">所有推理 100% 本地运行，数据零外泄</p></div>';
     }
     // 刷新会话列表
     try {
-      var resp = await fetch(BACKEND_URL + "/api/v1/chat/sessions");
-      var data = await resp.json();
-      if (data.data && data.data.length > 0) {
-        renderSessionList(data.data);
+      var resp2 = await fetch(BACKEND_URL + "/api/v1/chat/sessions");
+      var list = await resp2.json();
+      if (list.data && list.data.length > 0) {
+        renderSessionList(list.data);
         if (!currentSessionId) {
-          currentSessionId = data.data[0].session_id;
+          currentSessionId = list.data[0].session_id;
           loadChatHistory(currentSessionId);
         }
       } else {
@@ -683,44 +740,43 @@ dropZone.addEventListener("drop", function (e) {
 });
 
 async function submitASRTask(file) {
-  var formData = new FormData();
-  formData.append("file", file);
-
-  // 先上传文件获取本地路径 (简单方案: 用 knowledge upload 类似方式)
-  // 实际场景中，前端应该通过 Electron dialog 获取本地文件路径
-  // 这里使用 fetch 上传并在后端保存后获取路径
-
   showToast("ASR 任务投递中...", "");
 
-  try {
-    // 通过 FormData 直接发送文件
-    var uploadResp = await fetch(BACKEND_URL + "/api/v1/knowledge/upload", {
-      method: "POST",
-      body: formData,
-    });
-    var uploadData = await uploadResp.json();
-
-    // 获取文件路径 (实际场景应使用 IPC 获取本地路径)
-    // 演示: 使用上传后的 file_id 映射
-    var audioPath = file.path || file.name;
-  } catch (_) {}
-
-  // 投递 ASR 任务 (使用文件实际路径)
-  showToast("请通过本地文件路径投递 ASR 任务", "warn");
-
-  // 实际 Electron 环境中通过 preload 获取文件路径
+  // 优先使用 Electron 本地路径直传 (更快，免上传)
   if (window.qvacAPI && file.path) {
     try {
       var resp = await window.qvacAPI.submitASR(file.path);
       if (resp.code === 160) {
         showToast("ASR 任务已投递", "success");
         startASRPolling(resp.data.task_id);
+        return;
       } else {
         showToast(resp.message || "ASR 投递失败", "error");
+        return;
       }
     } catch (err) {
-      showToast("ASR 投递异常: " + err.message, "error");
+      // 降级到文件上传方式
     }
+  }
+
+  // 降级方案: 通过文件上传接口提交
+  var formData = new FormData();
+  formData.append("file", file);
+
+  try {
+    var uploadResp = await fetch(BACKEND_URL + "/api/v1/asr/upload", {
+      method: "POST",
+      body: formData,
+    });
+    var uploadData = await uploadResp.json();
+    if (uploadData.code === 160) {
+      showToast("ASR 任务已投递", "success");
+      startASRPolling(uploadData.data.task_id);
+    } else {
+      showToast(uploadData.message || "ASR 投递失败", "error");
+    }
+  } catch (err) {
+    showToast("ASR 投递异常: " + err.message, "error");
   }
 }
 

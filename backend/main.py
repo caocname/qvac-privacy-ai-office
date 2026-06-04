@@ -146,6 +146,27 @@ app.add_middleware(
 
 install_global_exception_hook()
 
+
+@app.exception_handler(Exception)
+async def global_exception_handler(request, exc):
+    """全局异常处理器 — 确保所有错误以 JSON 格式返回，避免 HTML 响应。"""
+    from fastapi.responses import JSONResponse
+    logger = get_audit_logger()
+    logger.log(LogType.ERROR, {
+        "event": "unhandled_exception",
+        "path": str(request.url.path),
+        "error_class": type(exc).__name__,
+    }, str(exc))
+    return JSONResponse(
+        status_code=500,
+        content={
+            "code": 500,
+            "status": "ERROR",
+            "error_class": type(exc).__name__,
+            "message": str(exc)[:500],
+        },
+    )
+
 # ---- API 路由注册 ----
 from backend.logger.log_router import router as log_router
 from backend.api.knowledge import router as knowledge_router

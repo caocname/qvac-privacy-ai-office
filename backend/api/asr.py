@@ -11,7 +11,7 @@ import uuid
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Query, UploadFile, File
 from pydantic import BaseModel, Field
 
 from backend.config import UPLOAD_DIR
@@ -64,11 +64,7 @@ def _estimate_wav_duration(file_path: str) -> float:
 
 
 def _do_transcribe(task_id: str, audio_path: str) -> None:
-    """在 ThreadPoolExecutor 中执行 ASR 转写。
-
-    优先通过 Bridge HTTP API (127.0.0.1:18889) 调用 QVAC SDK whispercpp。
-    若 Bridge 不可用，降级使用本地 whisper 模型。
-    """
+    """在 ThreadPoolExecutor 中执行 ASR 转写，通过 Bridge HTTP API 调用 QVAC SDK whispercpp。"""
     logger = get_audit_logger()
     task = _asr_tasks.get(task_id)
     if not task:
@@ -76,14 +72,12 @@ def _do_transcribe(task_id: str, audio_path: str) -> None:
 
     audio_duration = _estimate_wav_duration(audio_path)
     task["duration"] = audio_duration
-    # 粗略估计: 1s 音频 ≈ 1.5s 处理时间 (RTX 3060 + whisper base)
     estimated_time = max(audio_duration * 1.5, 5.0)
     task["remaining_time_s"] = estimated_time
 
     start_time = time.time()
 
     def _update_progress():
-        """基于时间估算的进度更新 (独立线程)。"""
         nonlocal start_time
         while not task.get("completed"):
             elapsed = time.time() - start_time
@@ -98,53 +92,24 @@ def _do_transcribe(task_id: str, audio_path: str) -> None:
 
     transcribed = ""
     try:
-        # 方案 1: 通过 Bridge HTTP API 调用 QVAC SDK whispercpp
         import httpx
-        try:
-            with httpx.Client(timeout=600.0) as client:
-                resp = client.post(
-                    "http://127.0.0.1:18889/api/asr/transcribe",
-                    json={
-                        "audio_path": audio_path,
-                        "model": "ggml-base.bin",
-                        "language": "zh",
-                    },
-                )
-                if resp.status_code == 200:
-                    data = resp.json()
-                    transcribed = data.get("text", "")
-                    if not transcribed:
-                        transcribed = data.get("transcribed_text", "")
-        except Exception:
-            pass
-
-        # 方案 2: Bridge 不可用 — 尝试 QVAC SDK Python 接口
-        if not transcribed:
-            try:
-                from qvac_sdk import ASREngine
-                asr_engine = ASREngine(model_path=str(_resolve_model_path("ggml-base.bin")))
-                transcribed = asr_engine.transcribe(audio_path, language="zh")
-            except ImportError:
-                pass
-            except Exception as exc:
-                logger.log(LogType.ERROR, {
-                    "task_id": task_id,
-                    "error_class": type(exc).__name__,
-                }, f"QVAC SDK ASR failed: {exc}")
-
-        # 方案 3: 最终降级 — 用户需手动配置 QVAC SDK
-        if not transcribed:
-            transcribed = (
-                "[ASR 待就绪] QVAC SDK Bridge 未连接。"
-                "请确保 Bridge 服务已启动 (127.0.0.1:18889) 且 whisper 模型已加载。"
+        with httpx.Client(timeout=600.0) as client:
+            resp = client.post(
+                "http://127.0.0.1:18889/api/asr/transcribe",
+                json={"audio_path": audio_path, "language": "zh"},
             )
-
+            if resp.status_code == 200:
+                data = resp.json()
+                transcribed = data.get("text", "")
     except Exception as exc:
-        transcribed = f"[ASR 异常] {str(exc)}"
         logger.log(LogType.ERROR, {
             "task_id": task_id,
             "error_class": type(exc).__name__,
         }, str(exc))
+        transcribed = f"[ASR 失败] Bridge 转写异常: {str(exc)[:200]}"
+
+    if not transcribed:
+        transcribed = "[ASR 未就绪] Bridge 未连接或 whisper 模型未加载。启动 Bridge 后首次转写将自动加载模型。"
 
     task["progress_percent"] = 100.0
     task["remaining_time_s"] = 0.0
@@ -174,21 +139,6 @@ def _do_transcribe(task_id: str, audio_path: str) -> None:
         "event": "task_completed",
         "duration": audio_duration,
     }, f"ASR completed: {transcribed[:100]}...")
-
-
-def _resolve_model_path(model_name: str) -> Path:
-    """解析模型文件本地路径。"""
-    from backend.config import PROJECT_ROOT
-
-    candidates = [
-        PROJECT_ROOT / "models" / model_name,
-        PROJECT_ROOT / "qvac-sdk" / "models" / model_name,
-        Path(os.environ.get("QVAC_MODEL_DIR", "")) / model_name,
-    ]
-    for p in candidates:
-        if p.exists():
-            return p
-    return candidates[0]
 
 
 @router.post("/submit")
@@ -245,6 +195,86 @@ async def submit(req: ASRSubmitRequest):
         "audio_type": req.audio_type,
         "event": "task_submitted",
     }, f"ASR task submitted: {req.audio_path}")
+
+    return {
+        "code": StateCode.ASR_PROCESSING.value,
+        "status": StateCode.ASR_PROCESSING.name,
+        "data": {
+            "task_id": task_id,
+            "estimated_duration_s": estimated_duration,
+        },
+    }
+
+
+@router.post("/upload")
+async def asr_upload(file: UploadFile = File(...)):
+    """ASR 文件上传接口 — 接受 WAV 文件上传，保存后异步转写。
+
+    解决前端无法获取本地文件路径的问题。
+    """
+    # 格式校验
+    ext = (file.filename.rsplit(".", 1)[-1] or "").lower() if file.filename else ""
+    if ext != "wav":
+        return {
+            "code": StateCode.ERROR.value,
+            "status": StateCode.ERROR.name,
+            "error_class": "UNSUPPORTED_AUDIO_FORMAT",
+            "message": "仅支持标准 WAV 格式音频文件。",
+        }
+
+    # 保存到 ASR 专用上传目录
+    asr_upload_dir = UPLOAD_DIR / "asr"
+    asr_upload_dir.mkdir(parents=True, exist_ok=True)
+    task_id = f"task-asr-{uuid.uuid4().hex[:12]}"
+    audio_path = asr_upload_dir / f"{task_id}.wav"
+
+    try:
+        content = await file.read()
+        audio_path.write_bytes(content)
+    except Exception as exc:
+        return {
+            "code": StateCode.ERROR.value,
+            "status": StateCode.ERROR.name,
+            "error_class": "FILE_SAVE_FAILED",
+            "message": f"音频文件保存失败: {str(exc)}",
+        }
+
+    # WAV 文件头校验
+    if not _validate_wav(str(audio_path)):
+        try:
+            os.remove(str(audio_path))
+        except OSError:
+            pass
+        return {
+            "code": StateCode.ERROR.value,
+            "status": StateCode.ERROR.name,
+            "error_class": "INVALID_WAV_FORMAT",
+            "message": "文件不是有效的 WAV 格式。仅支持标准无损 WAV 音频。",
+        }
+
+    # 估算时长
+    estimated_duration = _estimate_wav_duration(str(audio_path))
+
+    state_mgr = get_state_manager()
+    state_mgr.set_worker(StateCode.ASR_PROCESSING, True)
+
+    _asr_tasks[task_id] = {
+        "task_id": task_id,
+        "progress_percent": 0.0,
+        "remaining_time_s": max(estimated_duration * 1.5, 5.0),
+        "completed": False,
+        "archive_id": None,
+        "transcribed_text": None,
+        "duration": estimated_duration,
+    }
+
+    _asr_executor.submit(_do_transcribe, task_id, str(audio_path))
+
+    get_audit_logger().log(LogType.ASR_PROCESSING, {
+        "task_id": task_id,
+        "audio_name": file.filename,
+        "event": "task_submitted_upload",
+    }, f"ASR uploaded: {file.filename}")
 
     return {
         "code": StateCode.ASR_PROCESSING.value,

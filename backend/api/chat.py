@@ -61,13 +61,14 @@ async def get_history(session_id: str = Query(...)):
 
 @router.post("/session/close")
 async def close_session(session_id: str = Query(...)):
-    """关闭会话 — 清空 Temp 文档 + 释放显存缓存。
+    """关闭会话 — 清空 Temp 文档 + 永久删除会话记录。
 
     PRD §3.4: Temp 模态会话切换时必须物理强制销毁向量索引、分片缓存及上下文。
     """
     from backend.services.rag_service import RAGService
 
     purged = RAGService.purge_temp_for_session(session_id)
+    SessionManager.delete(session_id)
 
     get_audit_logger().log(LogType.SESSION, {
         "event": "session_closed",
@@ -81,7 +82,28 @@ async def close_session(session_id: str = Query(...)):
         "data": {
             "session_id": session_id,
             "temp_documents_purged": purged,
-            "message": f"会话已关闭，清理了 {purged} 个临时文档。",
+            "message": f"会话已永久删除，清理了 {purged} 个临时文档。",
+        },
+    }
+
+
+@router.post("/session/rename")
+async def rename_session(session_id: str = Query(...), title: str = Query(..., min_length=1, max_length=256)):
+    """重命名会话标题。"""
+    SessionManager.rename(session_id, title)
+
+    get_audit_logger().log(LogType.SESSION, {
+        "event": "session_renamed",
+        "session_id": session_id,
+        "title": title,
+    })
+
+    return {
+        "code": StateCode.IDLE.value,
+        "status": StateCode.IDLE.name,
+        "data": {
+            "session_id": session_id,
+            "title": title,
         },
     }
 

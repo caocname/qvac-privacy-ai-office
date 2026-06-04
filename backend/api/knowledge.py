@@ -105,120 +105,144 @@ async def upload_file(
     """知识库文件上传接口 — 完整管道：文件 → 解析 → 分片 → Embedding → FAISS"""
     state_mgr = get_state_manager()
     logger = get_audit_logger()
-    state_mgr.transition(StateCode.FILE_UPLOADING)
+    file_path = None
 
-    if isolate_mode == "session" and not session_id:
-        return {
-            "code": StateCode.ERROR.value,
-            "status": StateCode.ERROR.name,
-            "error_class": "MISSING_SESSION_ID",
-            "message": "session 隔离模式必须提供 session_id",
-        }
+    try:
+        state_mgr.transition(StateCode.FILE_UPLOADING)
 
-    # 文件类型校验
-    file_type = file.filename.rsplit(".", 1)[-1].lower() if file.filename else "txt"
-    if file_type not in ("pdf", "docx", "txt"):
-        return {
-            "code": StateCode.ERROR.value,
-            "status": StateCode.ERROR.name,
-            "error_class": "UNSUPPORTED_FILE_TYPE",
-            "message": f"不支持的文件类型: {file_type}，仅支持 PDF、DOCX、TXT",
-        }
+        if isolate_mode == "session" and not session_id:
+            return {
+                "code": StateCode.ERROR.value,
+                "status": StateCode.ERROR.name,
+                "error_class": "MISSING_SESSION_ID",
+                "message": "session 隔离模式必须提供 session_id",
+            }
 
-    file_id = f"file-{uuid.uuid4().hex[:16]}"
-    UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
-    file_path = UPLOAD_DIR / f"{file_id}.{file_type}"
+        # 文件类型校验
+        file_type = file.filename.rsplit(".", 1)[-1].lower() if file.filename else "txt"
+        if file_type not in ("pdf", "docx", "txt"):
+            return {
+                "code": StateCode.ERROR.value,
+                "status": StateCode.ERROR.name,
+                "error_class": "UNSUPPORTED_FILE_TYPE",
+                "message": f"不支持的文件类型: {file_type}，仅支持 PDF、DOCX、TXT",
+            }
 
-    # 保存文件
-    content = await file.read()
-    file_path.write_bytes(content)
+        file_id = f"file-{uuid.uuid4().hex[:16]}"
+        UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+        file_path = UPLOAD_DIR / f"{file_id}.{file_type}"
 
-    file_size = len(content)
+        # 保存文件
+        content = await file.read()
+        file_path.write_bytes(content)
 
-    logger.log(LogType.KNOWLEDGE_UPLOAD, {
-        "file_id": file_id,
-        "file_name": file.filename,
-        "file_type": file_type,
-        "file_size": file_size,
-        "isolate_mode": isolate_mode,
-        "session_id": session_id,
-    }, f"Upload: {file.filename} ({file_size} bytes, {isolate_mode})")
+        file_size = len(content)
 
-    # 文件结构化提取
-    state_mgr.transition(StateCode.FILE_PROCESSING)
-
-    if file_type == "txt":
-        extracted_text = _extract_text_from_txt(file_path)
-    elif file_type == "pdf":
-        extracted_text = _extract_text_from_pdf(file_path)
-    elif file_type == "docx":
-        extracted_text = _extract_text_from_docx(file_path)
-    else:
-        extracted_text = ""
-
-    if not extracted_text.strip():
-        # 清理失败的上传文件
-        try:
-            os.remove(file_path)
-        except OSError:
-            pass
-        return {
-            "code": StateCode.ERROR.value,
-            "status": StateCode.ERROR.name,
-            "error_class": "EXTRACTION_FAILED",
-            "message": "文件内容提取失败，文件可能已损坏或为空。",
-        }
-
-    # 文本分片
-    chunks = _chunk_text(extracted_text)
-    total_pages = max(1, len(chunks))
-
-    # 向量化 + FAISS 写入
-    state_mgr.set_worker(StateCode.EMBEDDING, True)
-
-    llm = get_llm_service()
-    embeddings = await llm.embed(chunks)
-
-    if embeddings and len(embeddings) == len(chunks):
-        import numpy as np
-        rag = RAGService()
-        indexed_count = rag.index_document(
-            file_id=file_id,
-            file_name=file.filename,
-            chunks=chunks,
-            embeddings=[np.array(e, dtype=np.float32) for e in embeddings],
-        )
-    else:
-        indexed_count = 0
-
-    state_mgr.set_worker(StateCode.EMBEDDING, False)
-
-    # 写入 knowledge_base 表
-    db = DatabaseManager.get_instance()
-    cipher = db.cipher
-    encrypted_path = cipher.encrypt(str(file_path)) if cipher else str(file_path)
-
-    db.conn.execute(
-        "INSERT INTO knowledge_base (file_id, file_name, file_path, file_size, total_pages, isolate_mode, session_id) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?)",
-        (file_id, file.filename, encrypted_path, file_size, total_pages, isolate_mode, session_id),
-    )
-    db.conn.commit()
-
-    state_mgr.transition(StateCode.IDLE)
-
-    return {
-        "code": StateCode.IDLE.value,
-        "status": StateCode.IDLE.name,
-        "data": {
+        logger.log(LogType.KNOWLEDGE_UPLOAD, {
             "file_id": file_id,
             "file_name": file.filename,
-            "total_pages": total_pages,
-            "chunk_count": len(chunks),
-            "indexed_count": indexed_count,
+            "file_type": file_type,
+            "file_size": file_size,
             "isolate_mode": isolate_mode,
-        },
-    }
+            "session_id": session_id,
+        }, f"Upload: {file.filename} ({file_size} bytes, {isolate_mode})")
+
+        # 文件结构化提取
+        state_mgr.transition(StateCode.FILE_PROCESSING)
+
+        if file_type == "txt":
+            extracted_text = _extract_text_from_txt(file_path)
+        elif file_type == "pdf":
+            extracted_text = _extract_text_from_pdf(file_path)
+        elif file_type == "docx":
+            extracted_text = _extract_text_from_docx(file_path)
+        else:
+            extracted_text = ""
+
+        if not extracted_text.strip():
+            try:
+                os.remove(file_path)
+            except OSError:
+                pass
+            state_mgr.transition(StateCode.IDLE)
+            return {
+                "code": StateCode.ERROR.value,
+                "status": StateCode.ERROR.name,
+                "error_class": "EXTRACTION_FAILED",
+                "message": "文件内容提取失败，文件可能已损坏或为空。请确认: 1) PDF 文件非扫描版 2) DOCX 文件未加密 3) 文件未损坏",
+            }
+
+        # 文本分片
+        chunks = _chunk_text(extracted_text)
+        total_pages = max(1, len(chunks))
+
+        # 先写入 knowledge_base（rag_chunks 有外键依赖）
+        db = DatabaseManager.get_instance()
+        cipher = db.cipher
+        encrypted_path = cipher.encrypt(str(file_path)) if cipher else str(file_path)
+
+        db.conn.execute(
+            "INSERT INTO knowledge_base (file_id, file_name, file_path, file_size, total_pages, isolate_mode, session_id) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (file_id, file.filename, encrypted_path, file_size, total_pages, isolate_mode, session_id),
+        )
+        db.conn.commit()
+
+        # 向量化 + FAISS 写入
+        state_mgr.set_worker(StateCode.EMBEDDING, True)
+
+        llm = get_llm_service()
+        embeddings = await llm.embed(chunks)
+
+        if embeddings and len(embeddings) == len(chunks):
+            import numpy as np
+            rag = RAGService()
+            indexed_count = rag.index_document(
+                file_id=file_id,
+                file_name=file.filename,
+                chunks=chunks,
+                embeddings=[np.array(e, dtype=np.float32) for e in embeddings],
+            )
+        else:
+            indexed_count = 0
+
+        state_mgr.set_worker(StateCode.EMBEDDING, False)
+
+        state_mgr.transition(StateCode.IDLE)
+
+        return {
+            "code": StateCode.IDLE.value,
+            "status": StateCode.IDLE.name,
+            "data": {
+                "file_id": file_id,
+                "file_name": file.filename,
+                "total_pages": total_pages,
+                "chunk_count": len(chunks),
+                "indexed_count": indexed_count,
+                "isolate_mode": isolate_mode,
+            },
+        }
+
+    except Exception as exc:
+        state_mgr.transition(StateCode.ERROR)
+        state_mgr.transition(StateCode.IDLE)
+        logger.log(LogType.ERROR, {
+            "event": "upload_exception",
+            "file_name": file.filename if file else "unknown",
+            "error_class": type(exc).__name__,
+        }, str(exc))
+        # 清理残留文件
+        if file_path is not None:
+            try:
+                os.remove(file_path)
+            except OSError:
+                pass
+        return {
+            "code": StateCode.ERROR.value,
+            "status": StateCode.ERROR.name,
+            "error_class": type(exc).__name__,
+            "message": f"上传处理异常: {str(exc)[:300]}",
+        }
 
 
 @router.get("/list")

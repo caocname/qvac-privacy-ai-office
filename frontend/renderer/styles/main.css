@@ -90,6 +90,17 @@ body {
 }
 .session-item:hover .session-close-btn { visibility: visible; }
 .session-item .session-close-btn:hover { color: var(--error); }
+.session-rename-input {
+  flex: 1;
+  background: var(--bg-primary);
+  border: 1px solid var(--accent);
+  color: var(--text-primary);
+  font-size: 13px;
+  padding: 2px 6px;
+  border-radius: 3px;
+  outline: none;
+  min-width: 0;
+}
 
 /* ---- 导航 ---- */
 .nav-list { list-style: none; flex: 1; padding: 8px 0; }

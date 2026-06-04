@@ -56,6 +56,27 @@ class SessionManager:
         ]
 
     @staticmethod
+    def delete(session_id: str) -> bool:
+        """永久删除会话及其所有聊天记录。"""
+        db = DatabaseManager.get_instance()
+        db.conn.execute("DELETE FROM chat_records WHERE session_id = ?", (session_id,))
+        db.conn.execute("DELETE FROM sessions WHERE session_id = ?", (session_id,))
+        db.conn.commit()
+        return True
+
+    @staticmethod
+    def rename(session_id: str, title: str) -> bool:
+        """重命名会话标题。"""
+        db = DatabaseManager.get_instance()
+        now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
+        db.conn.execute(
+            "UPDATE sessions SET title = ?, update_time = ? WHERE session_id = ?",
+            (title, now, session_id),
+        )
+        db.conn.commit()
+        return True
+
+    @staticmethod
     def append_message(session_id: str, role: str, content: str, token_count: int = 0) -> str:
         db = DatabaseManager.get_instance()
         message_id = f"msg-{uuid.uuid4().hex[:12]}"
