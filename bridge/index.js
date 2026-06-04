@@ -133,8 +133,10 @@ const server = http.createServer(async (req, res) => {
 
     const body = await readBody(req);
     const messages = body.messages || [];
-    const maxTokens = body.max_tokens || 2048;
-    const temperature = body.temperature || 0.7;
+    const maxTokens = body.max_tokens || 1024;
+    const temperature = body.temperature || 0.5;
+    const repeatPenalty = body.repeat_penalty || 1.0;
+    const frequencyPenalty = body.frequency_penalty || 0.0;
 
     try {
       const startTime = Date.now();
@@ -147,6 +149,8 @@ const server = http.createServer(async (req, res) => {
         generationParams: {
           predict: maxTokens,
           temp: temperature,
+          repeat_penalty: repeatPenalty,
+          frequency_penalty: frequencyPenalty,
         },
       });
 
@@ -193,7 +197,7 @@ const server = http.createServer(async (req, res) => {
   // ---- Abort ----
   if (url.pathname === "/api/llm/abort" && req.method === "POST") {
     try {
-      await cancel({ modelId: llmModelId });
+      await cancel({ operation: "inference", modelId: llmModelId });
     } catch {}
     return json(res, 200, { status: "aborted" });
   }

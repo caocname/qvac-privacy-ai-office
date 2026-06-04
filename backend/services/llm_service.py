@@ -116,8 +116,8 @@ class LLMService:
         self,
         messages: list[dict[str, str]],
         rag_context: str = "",
-        max_tokens: int = 2048,
-        temperature: float = 0.7,
+        max_tokens: int = 1024,
+        temperature: float = 0.5,
     ) -> AsyncGenerator[dict[str, Any], None]:
         """流式 LLM 推理 — 逐 token 产出 dict, 最终 dict 含 stats。"""
         logger = get_audit_logger()
@@ -126,15 +126,13 @@ class LLMService:
             InferenceMetric.MODEL_ID: "qvac-llamacpp",
         })
 
-        # 拼接完整消息列表
-        full_messages = [{"role": "system", "content": SYSTEM_PROMPT}]
-        full_messages.extend(messages)
-
+        # 合并系统提示词与 RAG 上下文为单条 system 消息，避免 1B 小模型在多 system 消息下产生重复
+        system_content = SYSTEM_PROMPT
         if rag_context:
-            full_messages.append({
-                "role": "system",
-                "content": rag_context,
-            })
+            system_content += f"\n\n【本次检索到的参考片段 — 回答必须基于此内容】\n{rag_context}"
+
+        full_messages = [{"role": "system", "content": system_content}]
+        full_messages.extend(messages)
 
         try:
             async with httpx.AsyncClient(timeout=300.0) as client:
@@ -145,6 +143,8 @@ class LLMService:
                         "messages": full_messages,
                         "max_tokens": max_tokens,
                         "temperature": temperature,
+                        "repeat_penalty": 1.15,
+                        "frequency_penalty": 0.4,
                     },
                 ) as resp:
                     full_text = ""

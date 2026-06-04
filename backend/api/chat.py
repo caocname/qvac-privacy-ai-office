@@ -225,24 +225,6 @@ async def send_message(req: ChatRequest):
             if rag_fallback_msg is None:
                 rag_fallback_msg = "Embedding 模型未就绪，请等待 Bridge 模型加载完成后重试。"
 
-    # R-04: RAG 已启用但未检索到匹配内容 → 阻断 LLM（除非已加载上下文文档）
-    if req.enable_rag and not rag_chunks and rag_fallback_msg and not context_docs_text:
-        state_mgr.transition(StateCode.IDLE)
-        assistant_msg_id = SessionManager.append_message(req.session_id, "assistant", rag_fallback_msg)
-        logger.log(LogType.RAG_RETRIEVAL, {
-            "session_id": req.session_id,
-            "event": "rag_blocked_llm",
-            "fallback": rag_fallback_msg[:100],
-        })
-
-        async def fallback_stream():
-            yield f"data: {json.dumps({'done': True, 'message_id': assistant_msg_id, 'full_text': rag_fallback_msg, 'memory_truncated': False, 'truncated_message_ids': []})}\n\n"
-
-        return StreamingResponse(
-            fallback_stream(),
-            media_type="text/event-stream",
-            headers={"Cache-Control": "no-cache", "Connection": "keep-alive", "X-Accel-Buffering": "no"},
-        )
     # 3. 构建上下文窗口
     history = SessionManager.get_history(req.session_id)
     history_messages = [
@@ -294,8 +276,6 @@ async def send_message(req: ChatRequest):
             async for chunk in llm_svc.chat_stream(
                 messages=llm_messages,
                 rag_context=enhanced_context,
-                max_tokens=2048,
-                temperature=0.7,
             ):
                 if chunk.get("done"):
                     if "error" in chunk:

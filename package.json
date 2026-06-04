@@ -1,6 +1,24 @@
 {
   "dependencies": {
-    "@qvac/embed-llamacpp": "^0.17.0",
-    "@qvac/llm-llamacpp": "^0.22.1"
-  }
+    "@qvac/sdk": "^0.10.2"
+  },
+  "name": "text2",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/caocname/qvachackstext.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/caocname/qvachackstext/issues"
+  },
+  "homepage": "https://github.com/caocname/qvachackstext#readme",
+  "type": "module"
 }
