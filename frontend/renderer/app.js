@@ -13,6 +13,386 @@ let audioCtx = null;
 let asrPollTimer = null;
 let selectedDocIds = [];  // 当前选中的知识库文档 ID 列表
 
+// ---- I18N 国际化 ----
+let currentLang = localStorage.getItem("qvac_lang") || "zh";
+
+const I18N = {
+  // 导航
+  "app.title":             { zh: "QVAC Hackathon 离线 AI 办公助手", en: "QVAC Hackathon Offline AI Office Assistant" },
+  "app.brand":             { zh: "QVAC 办公助手", en: "QVAC Assistant" },
+  "app.ready":             { zh: "就绪", en: "Ready" },
+  "app.offline":           { zh: "离线", en: "Offline" },
+  "app.connected":         { zh: "后端已连接", en: "Backend Connected" },
+  "app.disconnected":      { zh: "后端未连接", en: "Backend Disconnected" },
+  "nav.sessions":          { zh: "会话", en: "Sessions" },
+  "nav.newSession":        { zh: "新建会话", en: "New Session" },
+  "nav.newSessionTitle":   { zh: "新会话", en: "New Session" },
+  "nav.aiChat":            { zh: "AI 对话", en: "AI Chat" },
+  "nav.knowledge":         { zh: "知识库", en: "Knowledge Base" },
+  "nav.asr":               { zh: "语音转写", en: "Speech to Text" },
+  "nav.translate":         { zh: "翻译", en: "Translate" },
+  "nav.audit":             { zh: "审计日志", en: "Audit Log" },
+  "nav.settings":          { zh: "系统设置", en: "Settings" },
+
+  // 对话页
+  "chat.emptyTitle":       { zh: "开始离线隐私对话", en: "Start Offline Private Chat" },
+  "chat.emptySub":         { zh: "所有推理 100% 本地运行，数据零外泄", en: "100% local inference. Zero data leakage." },
+  "chat.contextDocs":      { zh: "上下文文档:", en: "Context Docs:" },
+  "chat.selectDoc":        { zh: "选择文档", en: "Select Documents" },
+  "chat.placeholder":      { zh: "输入消息...", en: "Type a message..." },
+  "chat.send":             { zh: "发送", en: "Send" },
+  "chat.userRole":         { zh: "用户", en: "User" },
+  "chat.assistantRole":    { zh: "助手", en: "Assistant" },
+  "chat.emptyResponse":    { zh: "(空响应)", en: "(Empty response)" },
+  "chat.truncatedTag":     { zh: "[已自动归档早期历史记忆]", en: "[Early history auto-archived]" },
+  "chat.loadedDoc":        { zh: "已加载文档: ", en: "Loaded document: " },
+  "chat.loadedDocSub":     { zh: "文档全文已注入 AI 上下文，可直接提问", en: "Full text injected into AI context. You can ask questions directly." },
+  "chat.noDocs":           { zh: "暂无文档，请先上传", en: "No documents. Please upload first." },
+  "chat.loadFailed":       { zh: "加载失败", en: "Load failed" },
+  "chat.noDocSelected":    { zh: "未选择文档", en: "No document selected" },
+  "chat.chunks":           { zh: " 块", en: " chunks" },
+  "chat.ttsPlay":          { zh: "朗读", en: "Read Aloud" },
+  "chat.ttsStop":          { zh: "停止", en: "Stop" },
+  "chat.sessionDefault":   { zh: "会话", en: "Session" },
+  "chat.dblClickRename":   { zh: "双击重命名", en: "Double-click to rename" },
+  "chat.closeSession":     { zh: "关闭会话", en: "Close Session" },
+
+  // 知识库
+  "kb.title":              { zh: "知识库管理", en: "Knowledge Base" },
+  "kb.root":               { zh: "根目录", en: "Root" },
+  "kb.allDocs":            { zh: "全部文档", en: "All Documents" },
+  "kb.upload":             { zh: "上传文档", en: "Upload" },
+  "kb.uploading":          { zh: "上传中...", en: "Uploading..." },
+  "kb.selectAll":          { zh: "全选", en: "Select All" },
+  "kb.selected":           { zh: "已选 ", en: "Selected: " },
+  "kb.selectedItems":      { zh: " 项", en: "" },
+  "kb.batchIsolate":       { zh: "批量隔离...", en: "Batch Isolate..." },
+  "kb.global":             { zh: "全局", en: "Global" },
+  "kb.session":            { zh: "会话", en: "Session" },
+  "kb.temp":               { zh: "临时", en: "Temp" },
+  "kb.batchDelete":        { zh: "批量删除", en: "Batch Delete" },
+  "kb.batchTranslate":     { zh: "批量翻译", en: "Batch Translate" },
+  "kb.batchExport":        { zh: "批量导出", en: "Batch Export" },
+  "kb.batchImport":        { zh: "批量导入", en: "Batch Import" },
+  "kb.folders":            { zh: "文件夹", en: "Folders" },
+  "kb.newFolder":          { zh: "新建文件夹", en: "New Folder" },
+  "kb.emptyState":         { zh: "尚未上传任何文档", en: "No documents uploaded yet" },
+  "kb.versions":           { zh: "共 ", en: "" },
+  "kb.versionsSuffix":     { zh: " 个版本", en: " versions" },
+  "kb.expand":             { zh: "展开 ▼", en: "Expand ▼" },
+  "kb.collapse":           { zh: "收起 ▲", en: "Collapse ▲" },
+  "kb.moveToFolder":       { zh: "移至文件夹...", en: "Move to folder..." },
+  "kb.download":           { zh: "下载", en: "Download" },
+  "kb.downloadTitle":      { zh: "下载原文件", en: "Download original file" },
+  "kb.export":             { zh: "导出...", en: "Export..." },
+  "kb.ttsDocTitle":        { zh: "播放文档内容", en: "Play document content" },
+  "kb.translateTitle":     { zh: "全文翻译", en: "Full-text translation" },
+  "kb.translateBtn":       { zh: "翻译", en: "Translate" },
+  "kb.delete":             { zh: "删除", en: "Delete" },
+  "kb.rename":             { zh: "重命名", en: "Rename" },
+  "kb.dataError":          { zh: "无法加载知识库数据", en: "Failed to load knowledge base data" },
+  "kb.clickSwitchMode":    { zh: "点击切换隔离模式", en: "Click to switch isolation mode" },
+  "kb.pageSize":           { zh: " 块", en: " chunks" },
+
+  // ASR
+  "asr.title":             { zh: "语音转写 (ASR)", en: "Speech to Text (ASR)" },
+  "asr.hint":              { zh: "仅支持标准 WAV 格式", en: "WAV format only" },
+  "asr.dropText":          { zh: "拖入 WAV 音频文件或点击选择", en: "Drop WAV audio files or click to select" },
+  "asr.dropSub":           { zh: "支持单声道/立体声 16bit WAV", en: "Supports mono/stereo 16bit WAV" },
+  "asr.selectFile":        { zh: "选择音频文件", en: "Select Audio File" },
+  "asr.processing":        { zh: "处理中", en: "Processing" },
+  "asr.completed":         { zh: "已完成", en: "Completed" },
+  "asr.remaining":         { zh: "剩余: ", en: "Remaining: " },
+  "asr.done":              { zh: "完成", en: "Done" },
+  "asr.duration":          { zh: "时长: ", en: "Duration: " },
+  "asr.empty":             { zh: "(空)", en: "(Empty)" },
+  "asr.result":            { zh: "转写结果", en: "Transcription Result" },
+  "asr.exportBtn":         { zh: "导出", en: "Export" },
+  "asr.importKbBtn":       { zh: "导入知识库", en: "Import to KB" },
+  "asr.archive":           { zh: "历史转写记录", en: "Transcription History" },
+  "asr.archiveEmpty":      { zh: "暂无转写记录", en: "No transcription records" },
+  "asr.archiveError":      { zh: "无法加载转写记录", en: "Failed to load transcription records" },
+
+  // 翻译
+  "tr.title":              { zh: "翻译文本视窗", en: "Translation View" },
+  "tr.exportBtn":          { zh: "导出", en: "Export" },
+  "tr.importKbBtn":        { zh: "导入知识库", en: "Import to KB" },
+  "tr.history":            { zh: "翻译记录", en: "Translation History" },
+  "tr.historyEmpty":       { zh: "暂无翻译记录", en: "No translation history" },
+  "tr.source":             { zh: "原文", en: "Original" },
+  "tr.target":             { zh: "译文", en: "Translation" },
+  "tr.targetLang":         { zh: "目标语言:", en: "Target Language:" },
+  "tr.langZH":             { zh: "中文", en: "Chinese" },
+  "tr.sourceEmpty":        { zh: "选择文档并点击翻译按钮开始", en: "Select a document and click translate to start" },
+  "tr.targetEmpty":        { zh: "翻译结果将在此显示", en: "Translation result will be displayed here" },
+  "tr.origNotSaved":       { zh: "(原文未保存，请重新翻译)", en: "(Original not saved, please re-translate)" },
+  "tr.exportDocxWarn":     { zh: "DOCX 导出请使用后端接口", en: "DOCX export requires backend API" },
+  "tr.progressTitle":      { zh: "正在翻译...", en: "Translating..." },
+  "tr.progressHint":       { zh: "请稍候，翻译完成后将自动显示结果", en: "Please wait, results will appear automatically" },
+
+  // 审计日志
+  "audit.title":           { zh: "审计日志", en: "Audit Log" },
+  "audit.exportBtn":       { zh: "一键导出 (JSON+CSV)", en: "Export (JSON+CSV)" },
+  "audit.relTime":         { zh: "相对时间", en: "Relative Time" },
+  "audit.absTime":         { zh: "绝对时间", en: "Absolute Time" },
+  "audit.type":            { zh: "类型", en: "Type" },
+  "audit.summary":         { zh: "摘要", en: "Summary" },
+  "audit.loadHint":        { zh: "点击「导出 JSON」加载审计数据", en: "Click Export to load audit data" },
+  "audit.noConnection":    { zh: "无法加载审计数据 — 后端未连接", en: "Cannot load audit data — backend disconnected" },
+  "audit.noData":          { zh: "暂无日志记录", en: "No log records" },
+  "audit.total":           { zh: "共 ", en: "Total: " },
+  "audit.records":         { zh: " 条", en: "" },
+  "audit.pageInfo":        { zh: " 条 / ", en: " / " },
+  "audit.pages":           { zh: " 页", en: " pages" },
+  "audit.prev":            { zh: "上一页", en: "Previous" },
+  "audit.next":            { zh: "下一页", en: "Next" },
+  "audit.exporting":       { zh: "导出中...", en: "Exporting..." },
+
+  // 系统设置
+  "settings.title":        { zh: "系统设置", en: "Settings" },
+  "settings.systemStatus": { zh: "系统状态", en: "System Status" },
+  "settings.masterState":  { zh: "主线程状态", en: "Master Thread" },
+  "settings.activeWorkers":{ zh: "活跃 Worker", en: "Active Workers" },
+  "settings.killSwitch":   { zh: "Kill Switch", en: "Kill Switch" },
+  "settings.hardware":     { zh: "硬件信息", en: "Hardware Info" },
+  "settings.gpuMem":       { zh: "GPU 显存", en: "GPU Memory" },
+  "settings.cpuUsage":     { zh: "CPU 利用率", en: "CPU Usage" },
+  "settings.ramUsage":     { zh: "RAM 使用", en: "RAM Usage" },
+  "settings.dataSecurity": { zh: "数据安全", en: "Data Security" },
+  "settings.credManager":  { zh: "凭据管理器", en: "Credential Manager" },
+  "settings.encryption":   { zh: "加密状态", en: "Encryption" },
+  "settings.exportKey":    { zh: "导出恢复密钥 (.key)", en: "Export Recovery Key (.key)" },
+  "settings.genMnemonic":  { zh: "生成助记词", en: "Generate Mnemonic" },
+  "settings.importKey":    { zh: "导入恢复密钥", en: "Import Recovery Key" },
+  "settings.language":     { zh: "语言 / Language", en: "Language / 语言" },
+  "settings.langLabel":    { zh: "界面语言", en: "Interface Language" },
+  "settings.none":         { zh: "无", en: "None" },
+  "settings.locked":       { zh: "已锁定", en: "Locked" },
+  "settings.normal":       { zh: "正常", en: "Normal" },
+  "settings.managed":      { zh: "已托管", en: "Managed" },
+  "settings.missing":      { zh: "缺失", en: "Missing" },
+  "settings.aes256":       { zh: "AES-256-GCM", en: "AES-256-GCM" },
+  "settings.plaintext":    { zh: "明文 (降级)", en: "Plaintext (Degraded)" },
+
+  // 弹窗 / 模态框
+  "modal.confirmTitle":    { zh: "确认操作", en: "Confirm" },
+  "modal.confirming":      { zh: "确认 (", en: "Confirm (" },
+  "modal.confirmDone":     { zh: "确认", en: "Confirm" },
+  "modal.processing":      { zh: "处理中...", en: "Processing..." },
+  "modal.cancel":          { zh: "取消", en: "Cancel" },
+  "modal.credTitle":       { zh: "密钥灾备恢复", en: "Key Recovery" },
+  "modal.credMsg":         { zh: "Windows 凭据管理器主密钥丢失，请导入恢复文件或助记词。", en: "Windows Credential Manager master key lost. Please import recovery file or mnemonic." },
+  "modal.credPlaceholder": { zh: "粘贴 .key 文件内容 (64位 hex) 或 12 位中文助记词", en: "Paste .key file content (64-char hex) or 12-word mnemonic" },
+  "modal.credSubmit":      { zh: "提交恢复", en: "Submit Recovery" },
+  "modal.credLater":       { zh: "稍后处理", en: "Later" },
+  "modal.setupTitle":      { zh: "首次启动 — 安全配置", en: "First Launch — Security Setup" },
+  "modal.setupMsg":        { zh: "本地加密主密钥已自动生成。请务必导出并安全保存恢复密钥，否则数据将无法恢复。", en: "Local encryption master key has been auto-generated. Please export and safely store the recovery key, otherwise data will be unrecoverable." },
+  "modal.setupKeyLabel":   { zh: "恢复密钥 (64 hex):", en: "Recovery Key (64 hex):" },
+  "modal.setupMnemonic":   { zh: "12 位助记词:", en: "12-word Mnemonic:" },
+  "modal.loading":         { zh: "加载中...", en: "Loading..." },
+  "modal.copy":            { zh: "复制", en: "Copy" },
+  "modal.downloadKey":     { zh: "下载 .key 文件", en: "Download .key File" },
+  "modal.saved":           { zh: "我已安全保存", en: "I Have Saved It Safely" },
+  "modal.importAsrTitle":  { zh: "导入转写结果到知识库", en: "Import Transcription to Knowledge Base" },
+  "modal.importTrTitle":   { zh: "导入翻译结果到知识库", en: "Import Translation to Knowledge Base" },
+  "modal.docTitle":        { zh: "文档标题", en: "Document Title" },
+  "modal.docTitlePlaceholder": { zh: "留空则使用音频文件名", en: "Leave empty to use audio filename" },
+  "modal.trDocPlaceholder":{ zh: "翻译文档标题", en: "Translation document title" },
+  "modal.importFormat":    { zh: "导入格式", en: "Import Format" },
+  "modal.formatTxt":       { zh: "纯文本 (TXT)", en: "Plain Text (TXT)" },
+  "modal.formatMd":        { zh: "Markdown (MD)", en: "Markdown (MD)" },
+  "modal.isolateMode":     { zh: "隔离模式", en: "Isolation Mode" },
+  "modal.global":          { zh: "全局 (global)", en: "Global" },
+  "modal.session":         { zh: "会话 (session)", en: "Session" },
+  "modal.temp":            { zh: "临时 (temp)", en: "Temp" },
+  "modal.targetFolder":    { zh: "目标文件夹", en: "Target Folder" },
+  "modal.confirmImport":   { zh: "确认导入", en: "Confirm Import" },
+  "modal.importing":       { zh: "导入中...", en: "Importing..." },
+  "modal.ttsTitle":        { zh: "语音播放", en: "Voice Playback" },
+  "modal.ttsPlay":         { zh: "播放/暂停", en: "Play/Pause" },
+  "modal.ttsStop":         { zh: "停止", en: "Stop" },
+  "modal.ttsSpeed":        { zh: "语速", en: "Speed" },
+  "modal.ttsVoice":        { zh: "音色", en: "Voice" },
+  "modal.close":           { zh: "关闭", en: "Close" },
+  "modal.folderName":      { zh: "文件夹名称", en: "Folder Name" },
+
+  // 网络锁定
+  "overlay.locked":        { zh: "检测到程序异常网络行为，AI 功能已锁定。", en: "Abnormal network activity detected. AI features locked." },
+
+  // Toast 消息
+  "toast.copied":          { zh: "已复制到剪贴板", en: "Copied to clipboard" },
+  "toast.keyDownloaded":   { zh: "恢复密钥已下载", en: "Recovery key downloaded" },
+  "toast.setupDone":       { zh: "安全配置完成", en: "Security setup complete" },
+  "toast.recoveryInput":   { zh: "请输入恢复密钥或助记词", en: "Please enter recovery key or mnemonic" },
+  "toast.recoveryOk":      { zh: "密钥恢复成功", en: "Key recovery successful" },
+  "toast.recoveryFail":    { zh: "恢复失败", en: "Recovery failed" },
+  "toast.recoveryErr":     { zh: "恢复请求失败: ", en: "Recovery request failed: " },
+  "toast.sessionRenamed":  { zh: "会话已重命名", en: "Session renamed" },
+  "toast.renameFailed":    { zh: "重命名失败", en: "Rename failed" },
+  "toast.sessionClosed":   { zh: "会话已关闭", en: "Session closed" },
+  "toast.sessionCloseFail":{ zh: "关闭会话失败", en: "Failed to close session" },
+  "toast.noSession":       { zh: "会话初始化失败，请稍后重试", en: "Session init failed. Please retry." },
+  "toast.ttsFail":         { zh: "TTS 播放失败: ", en: "TTS playback failed: " },
+  "toast.folderCreated":   { zh: "文件夹「", en: "Folder \"" },
+  "toast.folderCreated2":  { zh: "」已创建", en: "\" created" },
+  "toast.createFailed":    { zh: "创建失败", en: "Create failed" },
+  "toast.folderRenamed":   { zh: "已重命名为「", en: "Renamed to \"" },
+  "toast.folderRenamed2":  { zh: "」", en: "\"" },
+  "toast.folderDeleted":   { zh: "文件夹已删除", en: "Folder deleted" },
+  "toast.deleteFailed":    { zh: "删除失败", en: "Delete failed" },
+  "toast.docDownloading":  { zh: "文档下载中...", en: "Downloading document..." },
+  "toast.exportFailed":    { zh: "导出失败", en: "Export failed" },
+  "toast.exportedAs":      { zh: "已导出为 ", en: "Exported as " },
+  "toast.uploadSuccess":   { zh: "文档上传成功，正在创建文档会话...", en: "Upload successful. Creating document session..." },
+  "toast.uploadFailed":    { zh: "上传失败", en: "Upload failed" },
+  "toast.uploadFailed2":   { zh: "上传失败：", en: "Upload failed: " },
+  "toast.sessionCreated":  { zh: "已创建会话「", en: "Session created: \"" },
+  "toast.sessionCreated2": { zh: "」并加载文档", en: "\" with loaded document" },
+  "toast.fileMoved":       { zh: "文件已移动", en: "File moved" },
+  "toast.moveFailed":      { zh: "移动失败", en: "Move failed" },
+  "toast.docDeleted":      { zh: "文档已删除", en: "Document deleted" },
+  "toast.wavOnly":         { zh: "仅支持标准 WAV 格式音频文件", en: "Only WAV format audio files supported" },
+  "toast.wavOnlyShort":    { zh: "仅支持 WAV 格式", en: "WAV format only" },
+  "toast.asrSubmitting":   { zh: "ASR 任务投递中...", en: "Submitting ASR task..." },
+  "toast.asrSubmitted":    { zh: "ASR 任务已投递", en: "ASR task submitted" },
+  "toast.asrSubmitFail":   { zh: "ASR 投递失败", en: "ASR submission failed" },
+  "toast.asrException":    { zh: "ASR 投递异常: ", en: "ASR submission error: " },
+  "toast.asrDone":         { zh: "ASR 转写完成", en: "ASR transcription complete" },
+  "toast.asrTaskFail":     { zh: "ASR 任务失败: ", en: "ASR task failed: " },
+  "toast.unknownError":    { zh: "未知错误", en: "Unknown error" },
+  "toast.noResultExport":  { zh: "暂无可导出的转写结果", en: "No transcription result to export" },
+  "toast.exported":        { zh: "已导出", en: "Exported" },
+  "toast.noAsrImport":     { zh: "没有可导入的转写结果", en: "No transcription result to import" },
+  "toast.importedKb":      { zh: "已导入知识库 (", en: "Imported to KB (" },
+  "toast.importedKb2":     { zh: " 个分片)", en: " chunks)" },
+  "toast.importFailed":    { zh: "导入失败", en: "Import failed" },
+  "toast.importReqFailed": { zh: "导入请求失败", en: "Import request failed" },
+  "toast.translatingTo":   { zh: "正在翻译为 ", en: "Translating to " },
+  "toast.translatingTo2":  { zh: "...", en: "..." },
+  "toast.translateDone":   { zh: "翻译完成", en: "Translation complete" },
+  "toast.translateFailed": { zh: "翻译失败", en: "Translation failed" },
+  "toast.translateUnavail":{ zh: "翻译服务不可用", en: "Translation service unavailable" },
+  "toast.selectRecord":    { zh: "请先选择翻译记录", en: "Please select a translation record first" },
+  "toast.recordNotFound":  { zh: "翻译记录未找到", en: "Translation record not found" },
+  "toast.exportedAs2":     { zh: "已导出: ", en: "Exported: " },
+  "toast.trImportedKb":    { zh: "翻译结果已导入知识库", en: "Translation result imported to KB" },
+  "toast.selectDocs":      { zh: "请先选择文档", en: "Please select documents first" },
+  "toast.selectAsrRecords":{ zh: "请先选择转写记录", en: "Please select transcription records first" },
+  "toast.docNotFound":     { zh: "文档未找到", en: "Document not found" },
+  "toast.isolateChanged":  { zh: "隔离模式已切换为: ", en: "Isolation mode changed to: " },
+  "toast.switchFailed":    { zh: "切换失败", en: "Switch failed" },
+  "toast.opFailed":        { zh: "操作失败", en: "Operation failed" },
+  "toast.batchIsolated":   { zh: " 个文档设为: ", en: " documents set to: " },
+  "toast.batchIsolated2":  { zh: "已将 ", en: "" },
+  "toast.batchIsolateFail":{ zh: "批量隔离失败", en: "Batch isolate failed" },
+  "toast.batchDeleted":    { zh: "已删除 ", en: "Deleted " },
+  "toast.batchDeleted2":   { zh: " 个文档", en: " documents" },
+  "toast.batchDeleteFail": { zh: "批量删除失败", en: "Batch delete failed" },
+  "toast.batchTranslating":{ zh: "正在批量翻译 ", en: "Batch translating " },
+  "toast.batchTranslating2":{ zh: " 个文档...", en: " documents..." },
+  "toast.batchTrDone":     { zh: "翻译完成，点击翻译页面查看", en: "Translation complete. Check translation page." },
+  "toast.batchTrFail":     { zh: "批量翻译失败", en: "Batch translation failed" },
+  "toast.batchExportDone": { zh: "批量导出完成", en: "Batch export complete" },
+  "toast.batchExportFail": { zh: "批量导出失败", en: "Batch export failed" },
+  "toast.batchImportDone": { zh: "导入完成: ", en: "Import complete: " },
+  "toast.batchImportOk":   { zh: " 成功, ", en: " success, " },
+  "toast.batchImportFail2":{ zh: " 失败", en: " failed" },
+  "toast.batchAsrImport":  { zh: "正在批量导入 ", en: "Batch importing " },
+  "toast.batchAsrImport2": { zh: " 条记录...", en: " records..." },
+  "toast.batchAsrOk":      { zh: "成功导入 ", en: "Successfully imported " },
+  "toast.batchAsrOk2":     { zh: " 条到知识库", en: " records to KB" },
+  "toast.batchAsrFail":    { zh: "批量导入失败", en: "Batch import failed" },
+  "toast.asrDeleted":      { zh: "已删除 ", en: "Deleted " },
+  "toast.asrDeleted2":     { zh: " 条记录", en: " records" },
+  "toast.asrDeleteFail":   { zh: "批量删除失败", en: "Batch delete failed" },
+  "toast.auditExported":   { zh: "已导出 JSON + CSV (", en: "Exported JSON + CSV (" },
+  "toast.auditExported2":  { zh: " 条)", en: " records)" },
+  "toast.credMissing":     { zh: "凭据丢失，请在设置页导入恢复密钥", en: "Credential missing. Please import recovery key in Settings." },
+  "toast.credMissing2":    { zh: "检测到加密凭据丢失！请立即导入恢复密钥", en: "Encryption credential lost! Please import recovery key immediately." },
+  "toast.mnemonicSaved":   { zh: "请妥善保管助记词", en: "Please keep the mnemonic safe" },
+  "toast.ttsError":        { zh: "语音播放出错: ", en: "Voice playback error: " },
+  "toast.ttsNoContent":    { zh: "无法获取文档内容", en: "Cannot fetch document content" },
+  "toast.ttsUnavailable":  { zh: "TTS 服务不可用", en: "TTS service unavailable" },
+  "toast.exportReqFailed": { zh: "导出请求失败", en: "Export request failed" },
+
+  // Confirm 弹窗消息
+  "confirm.closeSessionMsg":  { zh: "关闭此会话将永久删除会话及所有聊天记录。确认？", en: "Closing this session will permanently delete the session and all chat records. Confirm?" },
+  "confirm.deleteFolderMsg":  { zh: "删除文件夹后其中的文档不会被删除，仅解除关联。确认？", en: "Deleting this folder will not delete documents inside, only remove the association. Confirm?" },
+  "confirm.deleteFolderTitle":{ zh: "删除文件夹", en: "Delete Folder" },
+  "confirm.deleteDocTitle":   { zh: "删除文档", en: "Delete Document" },
+  "confirm.deleteDocMsg":     { zh: "确认永久删除此文档？此操作不可撤销。", en: "Permanently delete this document? This cannot be undone." },
+  "confirm.batchDeleteTitle": { zh: "批量删除", en: "Batch Delete" },
+  "confirm.batchDeleteMsg":   { zh: "确定要删除选中的 ", en: "Are you sure you want to delete the selected " },
+  "confirm.batchDeleteMsg2":  { zh: " 个文档吗？此操作不可恢复。", en: " documents? This cannot be undone." },
+  "confirm.batchAsrDelMsg":   { zh: "确定要删除选中的 ", en: "Are you sure you want to delete the selected " },
+  "confirm.batchAsrDelMsg2":  { zh: " 条转写记录吗？此操作不可恢复。", en: " transcription records? This cannot be undone." },
+  "confirm.renameFolder":     { zh: "重命名文件夹:", en: "Rename folder:" },
+
+  // 翻译目标语言标签
+  "lang.zh": { zh: "中文", en: "Chinese" },
+  "lang.en": { zh: "English", en: "English" },
+  "lang.ja": { zh: "日本語", en: "Japanese" },
+  "lang.ko": { zh: "한국어", en: "Korean" },
+  "lang.fr": { zh: "Français", en: "French" },
+  "lang.de": { zh: "Deutsch", en: "German" },
+  "lang.es": { zh: "Español", en: "Spanish" },
+
+  // 杂项
+  "misc.error": { zh: "错误", en: "Error" },
+  "misc.connectionError": { zh: "连接错误", en: "Connection error" },
+};
+
+function t(key) {
+  var entry = I18N[key];
+  if (!entry) return key;
+  return entry[currentLang] || entry["zh"] || key;
+}
+
+function tLang(code) {
+  return I18N["lang." + code] ? t("lang." + code) : code;
+}
+
+function applyLanguage(lang) {
+  currentLang = lang;
+  localStorage.setItem("qvac_lang", lang);
+  document.documentElement.lang = lang === "en" ? "en" : "zh-CN";
+
+  // 更新所有 [data-i18n] 元素的 textContent
+  document.querySelectorAll("[data-i18n]").forEach(function (el) {
+    var key = el.getAttribute("data-i18n");
+    el.textContent = t(key);
+  });
+
+  // 更新 placeholder 属性
+  document.querySelectorAll("[data-i18n-placeholder]").forEach(function (el) {
+    var key = el.getAttribute("data-i18n-placeholder");
+    el.placeholder = t(key);
+  });
+
+  // 更新 title 属性
+  document.querySelectorAll("[data-i18n-title]").forEach(function (el) {
+    var key = el.getAttribute("data-i18n-title");
+    el.title = t(key);
+  });
+
+  // 更新语言选择器
+  var langSel = document.getElementById("setting-lang-select");
+  if (langSel) langSel.value = lang;
+
+  // 刷新动态内容
+  updateNavStatus();
+  refreshCurrentPageTexts();
+}
+
+function refreshCurrentPageTexts() {
+  var activePage = document.querySelector(".page.active");
+  if (!activePage) return;
+  if (activePage.id === "page-knowledge") { loadFolderTree().then(function () { loadKnowledgeList(); }); }
+  if (activePage.id === "page-asr") { loadASRArchives(); }
+  if (activePage.id === "page-translate") { loadTranslateHistory(); }
+  if (activePage.id === "page-chat") { renderSessionList(); }
+}
+
 // ---- DOM 引用 ----
 const statusBadge = document.getElementById("status-badge");
 const connectionDot = document.getElementById("connection-dot");
@@ -46,15 +426,15 @@ function showConfirm(title, msg, onConfirm) {
   modal2.classList.remove("hidden");
   yesBtn.disabled = true;
   var count = 3;
-  yesBtn.textContent = "确认 (" + count + "s)";
+  yesBtn.textContent = t("modal.confirming") + count + "s)";
   var timer = setInterval(function () {
     count--;
     if (count <= 0) {
       clearInterval(timer);
       yesBtn.disabled = false;
-      yesBtn.textContent = "确认";
+      yesBtn.textContent = t("modal.confirmDone");
     } else {
-      yesBtn.textContent = "确认 (" + count + "s)";
+      yesBtn.textContent = t("modal.confirming") + count + "s)";
     }
   }, 1000);
 
@@ -69,12 +449,12 @@ function showConfirm(title, msg, onConfirm) {
     cleanup();
     // 支持 async onConfirm — 关闭按钮在回调期间禁用
     yesBtn.disabled = true;
-    yesBtn.textContent = "处理中...";
+    yesBtn.textContent = t("modal.processing");
     var result = onConfirm();
     if (result && typeof result.then === "function") {
       result.catch(function () {}).finally(function () {
         yesBtn.disabled = false;
-        yesBtn.textContent = "确认";
+        yesBtn.textContent = t("modal.confirmDone");
       });
     }
   }
@@ -120,10 +500,10 @@ async function checkHealth() {
     if (resp.ok) {
       if (!connected) {
         connected = true;
-        statusBadge.textContent = "就绪";
+        statusBadge.textContent = t("app.ready");
         statusBadge.className = "badge badge-idle";
         connectionDot.className = "dot dot-connected";
-        footerStatus.textContent = "后端已连接";
+        footerStatus.textContent = t("app.connected");
         sendBtn.disabled = false;
         chatInput.disabled = false;
         if (!currentSessionId) initSession();
@@ -135,12 +515,18 @@ async function checkHealth() {
   } catch (_) {}
 
   connected = false;
-  statusBadge.textContent = "离线";
+  statusBadge.textContent = t("app.offline");
   statusBadge.className = "badge badge-error";
   connectionDot.className = "dot dot-disconnected";
-  footerStatus.textContent = "后端未连接";
+  footerStatus.textContent = t("app.disconnected");
   sendBtn.disabled = true;
   chatInput.disabled = true;
+}
+
+function updateNavStatus() {
+  statusBadge.textContent = connected ? t("app.ready") : t("app.offline");
+  statusBadge.className = connected ? "badge badge-idle" : "badge badge-error";
+  footerStatus.textContent = connected ? t("app.connected") : t("app.disconnected");
 }
 
 checkHealth();
@@ -174,7 +560,7 @@ async function showSetupModal() {
 
   document.getElementById("setup-copy-key").onclick = function () {
     var hex = document.getElementById("setup-key-hex").textContent;
-    navigator.clipboard.writeText(hex).then(function () { showToast("已复制到剪贴板", "success"); });
+    navigator.clipboard.writeText(hex).then(function () { showToast(t("toast.copied"), "success"); });
   };
   document.getElementById("setup-copy-mnemonic").onclick = function () {
     var mnemonic = document.getElementById("setup-mnemonic").textContent;
@@ -189,12 +575,12 @@ async function showSetupModal() {
     a.download = "safe_recovery.key";
     a.click();
     URL.revokeObjectURL(url);
-    showToast("恢复密钥已下载", "success");
+    showToast(t("toast.keyDownloaded"), "success");
   };
   document.getElementById("setup-done-btn").onclick = function () {
     localStorage.setItem("qvac_key_exported", "1");
     document.getElementById("setup-modal").classList.add("hidden");
-    showToast("安全配置完成", "success");
+    showToast(t("toast.setupDone"), "success");
   };
 }
 
@@ -211,7 +597,7 @@ document.getElementById("import-key-btn").addEventListener("click", function () 
 
 credSubmit.addEventListener("click", async function () {
   var key = credInput.value.trim();
-  if (!key) { showToast("请输入恢复密钥或助记词", "error"); return; }
+  if (!key) { showToast(t("toast.recoveryInput"), "error"); return; }
   try {
     var resp = await fetch(BACKEND_URL + "/api/v1/system/recover", {
       method: "POST",
@@ -220,14 +606,14 @@ credSubmit.addEventListener("click", async function () {
     });
     var data = await resp.json();
     if (data.code === 100) {
-      showToast("密钥恢复成功", "success");
+      showToast(t("toast.recoveryOk"), "success");
       credModal.classList.add("hidden");
       loadSystemState();
     } else {
-      showToast(data.message || "恢复失败", "error");
+      showToast(data.message || t("toast.recoveryFail"), "error");
     }
   } catch (err) {
-    showToast("恢复请求失败: " + err.message, "error");
+    showToast(t("toast.recoveryErr") + err.message, "error");
   }
 });
 
@@ -283,7 +669,7 @@ function loadDocSelectorList() {
     .then(function (r) { return r.json(); })
     .then(function (data) {
       if (!data.data || data.data.length === 0) {
-        list.innerHTML = '<div style="color:var(--text-secondary);padding:8px 12px;font-size:12px">暂无文档，请先上传</div>';
+        list.innerHTML = '<div style="color:var(--text-secondary);padding:8px 12px;font-size:12px">' + t("chat.noDocs") + '</div>';
         return;
       }
       docInfoMap = {};
@@ -295,11 +681,11 @@ function loadDocSelectorList() {
         return '<div class="chat-docs-dropdown-item' + (sel ? " selected" : "") +
           '" onclick="event.stopPropagation();onDocItemClick(\'' + doc.file_id + '\')">' +
           (sel ? "✓ " : "") + escapeHtml(doc.file_name) +
-          '<span style="color:var(--text-secondary);font-size:10px;margin-left:auto">' + (doc.total_pages || 0) + ' 块</span></div>';
+          '<span style="color:var(--text-secondary);font-size:10px;margin-left:auto">' + (doc.total_pages || 0) + t("chat.chunks") + '</span></div>';
       }).join("");
     })
     .catch(function () {
-      list.innerHTML = '<div style="color:var(--error);padding:8px 12px;font-size:12px">加载失败</div>';
+      list.innerHTML = '<div style="color:var(--error);padding:8px 12px;font-size:12px">' + t("chat.loadFailed") + '</div>';
     });
 }
 
@@ -307,7 +693,7 @@ function renderDocTags() {
   var tags = document.getElementById("chat-docs-tags");
   if (!tags) return;
   if (selectedDocIds.length === 0) {
-    tags.innerHTML = '<span style="color:var(--text-secondary);font-size:11px">未选择文档</span>';
+    tags.innerHTML = '<span style="color:var(--text-secondary);font-size:11px">' + t("chat.noDocSelected") + '</span>';
     return;
   }
   tags.innerHTML = selectedDocIds.map(function (id) {
@@ -340,7 +726,7 @@ async function createNewSession() {
     var resp = await fetch(BACKEND_URL + "/api/v1/chat/session", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ api_version: "v1", title: "新会话" }),
+      body: JSON.stringify({ api_version: "v1", title: t("nav.newSessionTitle") }),
     });
     var data = await resp.json();
     currentSessionId = data.data.session_id;
@@ -371,7 +757,7 @@ document.getElementById("new-session-btn").addEventListener("click", async funct
   selectedDocIds = [];
   renderDocTags();
   await createNewSession();
-  chatMessages.innerHTML = '<div class="chat-placeholder"><div class="placeholder-icon"><svg viewBox="0 0 24 24" width="48" height="48"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" fill="currentColor" opacity="0.3"/></svg></div><p>开始离线隐私对话</p><p class="sub-text">所有推理 100% 本地运行，数据零外泄</p></div>';
+  chatMessages.innerHTML = '<div class="chat-placeholder"><div class="placeholder-icon"><svg viewBox="0 0 24 24" width="48" height="48"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" fill="currentColor" opacity="0.3"/></svg></div><p>' + t("chat.emptyTitle") + '</p><p class="sub-text">' + t("chat.emptySub") + '</p></div>';
 });
 
 function renderSessionList(sessions) {
@@ -384,8 +770,8 @@ function renderSessionList(sessions) {
 
     var title = document.createElement("span");
     title.className = "session-title";
-    title.textContent = s.title || "会话";
-    title.title = "双击重命名";
+    title.textContent = s.title || t("chat.sessionDefault");
+    title.title = t("chat.dblClickRename");
     li.appendChild(title);
 
     // 双击重命名
@@ -398,7 +784,7 @@ function renderSessionList(sessions) {
     var closeBtn = document.createElement("button");
     closeBtn.className = "session-close-btn";
     closeBtn.textContent = "x";
-    closeBtn.title = "关闭会话";
+    closeBtn.title = t("chat.closeSession");
     closeBtn.addEventListener("click", function (e) {
       e.stopPropagation();
       closeSession(s.session_id);
@@ -433,10 +819,10 @@ function startSessionRename(sessionId, titleEl) {
       fetch(BACKEND_URL + "/api/v1/chat/session/rename?session_id=" + sessionId + "&title=" + encodeURIComponent(newTitle), {
         method: "POST",
       }).then(function () {
-        showToast("会话已重命名", "success");
+        showToast(t("toast.sessionRenamed"), "success");
       }).catch(function () {
         titleEl.textContent = oldTitle;
-        showToast("重命名失败", "error");
+        showToast(t("toast.renameFailed"), "error");
       });
     }
   }
@@ -465,17 +851,17 @@ async function switchToSession(sessionId) {
 }
 
 async function closeSession(sessionId) {
-  showConfirm("关闭会话", "关闭此会话将永久删除会话及所有聊天记录。确认？", async function () {
+  showConfirm(t("chat.closeSession"), t("confirm.closeSessionMsg"), async function () {
     var ok = false;
     try {
       var resp = await fetch(BACKEND_URL + "/api/v1/chat/session/close?session_id=" + sessionId, { method: "POST" });
       var data = await resp.json();
       ok = data.code === 100;
     } catch (_) {}
-    if (!ok) { showToast("关闭会话失败", "error"); return; }
+    if (!ok) { showToast(t("toast.sessionCloseFail"), "error"); return; }
     if (sessionId === currentSessionId) {
       currentSessionId = null;
-      chatMessages.innerHTML = '<div class="chat-placeholder"><div class="placeholder-icon"><svg viewBox="0 0 24 24" width="48" height="48"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" fill="currentColor" opacity="0.3"/></svg></div><p>开始离线隐私对话</p><p class="sub-text">所有推理 100% 本地运行，数据零外泄</p></div>';
+      chatMessages.innerHTML = '<div class="chat-placeholder"><div class="placeholder-icon"><svg viewBox="0 0 24 24" width="48" height="48"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" fill="currentColor" opacity="0.3"/></svg></div><p>' + t("chat.emptyTitle") + '</p><p class="sub-text">' + t("chat.emptySub") + '</p></div>';
     }
     // 刷新会话列表
     try {
@@ -492,7 +878,7 @@ async function closeSession(sessionId) {
         createNewSession();
       }
     } catch (_) {}
-    showToast("会话已关闭", "success");
+    showToast(t("toast.sessionClosed"), "success");
   });
 }
 
@@ -531,7 +917,7 @@ async function sendMessage() {
   if (!text || !connected || currentStreaming) return;
   if (!currentSessionId) {
     await initSession();
-    if (!currentSessionId) { showToast("会话初始化失败，请稍后重试", "error"); return; }
+    if (!currentSessionId) { showToast(t("toast.noSession"), "error"); return; }
   }
 
   chatInput.value = "";
@@ -579,7 +965,7 @@ async function sendMessage() {
         try {
           var chunk = JSON.parse(line.slice(6));
           if (chunk.error) {
-            contentEl.textContent = "[错误] " + chunk.error;
+            contentEl.textContent = "[" + t("misc.error") + "] " + chunk.error;
             contentEl.classList.remove("streaming");
             break;
           }
@@ -589,7 +975,7 @@ async function sendMessage() {
             if (chunk.memory_truncated) {
               var tag = document.createElement("span");
               tag.className = "truncation-tag";
-              tag.textContent = "[已自动归档早期历史记忆]";
+              tag.textContent = t("chat.truncatedTag");
               contentEl.appendChild(tag);
             }
             contentEl.classList.remove("streaming");
@@ -606,11 +992,11 @@ async function sendMessage() {
 
     contentEl.classList.remove("streaming");
     if (contentEl.textContent === "..." || !contentEl.textContent) {
-      contentEl.textContent = fullText || "(空响应)";
+      contentEl.textContent = fullText || t("chat.emptyResponse");
       addTTSButton(assistantBubble, fullText);
     }
   } catch (err) {
-    assistantBubble.querySelector(".message-content").textContent = "[连接错误] " + err.message;
+    assistantBubble.querySelector(".message-content").textContent = "[" + t("misc.connectionError") + "] " + err.message;
     assistantBubble.querySelector(".message-content").classList.remove("streaming");
   }
 
@@ -633,7 +1019,7 @@ function addTTSButton(bubble, text) {
 
   var playBtn = document.createElement("button");
   playBtn.className = "btn btn-tiny";
-  playBtn.textContent = "朗读";
+  playBtn.textContent = t("chat.ttsPlay");
   playBtn.addEventListener("click", function () { playTTS(text, playBtn); });
   actions.appendChild(playBtn);
 
@@ -648,13 +1034,13 @@ async function playTTS(text, btn) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ api_version: "v1", action: "destroy_handler" }),
     });
-    btn.textContent = "朗读";
+    btn.textContent = t("chat.ttsPlay");
     btn.dataset.playing = "false";
     if (audioCtx) { audioCtx.close(); audioCtx = null; }
     return;
   }
 
-  btn.textContent = "停止";
+  btn.textContent = t("chat.ttsStop");
   btn.dataset.playing = "true";
 
   try {
@@ -684,14 +1070,14 @@ async function playTTS(text, btn) {
       source.buffer = audioBuffer;
       source.connect(audioCtx.destination);
       source.onended = function () {
-        btn.textContent = "朗读";
+        btn.textContent = t("chat.ttsPlay");
         btn.dataset.playing = "false";
       };
       source.start();
     }
   } catch (err) {
-    showToast("TTS 播放失败: " + err.message, "error");
-    btn.textContent = "朗读";
+    showToast(t("toast.ttsFail") + err.message, "error");
+    btn.textContent = t("chat.ttsPlay");
     btn.dataset.playing = "false";
   }
 }
@@ -712,7 +1098,7 @@ function appendMessage(role, content, messageId, isTruncated, isStreaming) {
 
   var roleLabel = document.createElement("span");
   roleLabel.className = "message-role";
-  roleLabel.textContent = role === "user" ? "用户" : "助手";
+  roleLabel.textContent = role === "user" ? t("chat.userRole") : t("chat.assistantRole");
 
   var contentEl = document.createElement("div");
   contentEl.className = "message-content";
@@ -743,14 +1129,14 @@ async function loadFolderTree() {
     var data = await resp.json();
     var folders = data.data || [];
     var html = '<div class="folder-item' + (currentFolderId === "" ? " active" : "") + '" data-folder-id="" onclick="selectFolder(\'\')">' +
-      '<span class="folder-icon">📁</span><span class="folder-item-name">全部文档</span></div>';
+      '<span class="folder-icon">📁</span><span class="folder-item-name">' + t("kb.allDocs") + '</span></div>';
     folders.forEach(function (f) {
       html += '<div class="folder-item' + (currentFolderId === f.folder_id ? " active" : "") + '" data-folder-id="' + f.folder_id + '" onclick="selectFolder(\'' + f.folder_id + '\')">' +
         '<span class="folder-icon">📁</span>' +
         '<span class="folder-item-name" title="' + escapeHtml(f.name) + '">' + escapeHtml(f.name) + '</span>' +
         '<span class="folder-item-actions">' +
-          '<button title="重命名" onclick="event.stopPropagation();renameFolderPrompt(\'' + f.folder_id + '\',\'' + escapeHtml(f.name) + '\')">✎</button>' +
-          '<button title="删除" onclick="event.stopPropagation();deleteFolderConfirm(\'' + f.folder_id + '\')">✕</button>' +
+          '<button title="' + t("kb.rename") + '" onclick="event.stopPropagation();renameFolderPrompt(\'' + f.folder_id + '\',\'' + escapeHtml(f.name) + '\')">✎</button>' +
+          '<button title="' + t("kb.delete") + '" onclick="event.stopPropagation();deleteFolderConfirm(\'' + f.folder_id + '\')">✕</button>' +
         '</span></div>';
     });
     tree.innerHTML = html;
@@ -765,7 +1151,7 @@ async function loadFolderTree() {
 }
 
 function updateFolderSelectors(folders) {
-  var opts = '<option value="">根目录</option>';
+  var opts = '<option value="">' + t("kb.root") + '</option>';
   folders.forEach(function (f) {
     opts += '<option value="' + f.folder_id + '">' + escapeHtml(f.name) + '</option>';
   });
@@ -807,7 +1193,7 @@ document.getElementById("new-folder-btn").addEventListener("click", function (e)
   inputRow.style.cssText = "display:flex;align-items:center;gap:4px;padding:6px 16px;border-bottom:1px solid var(--border)";
   var input = document.createElement("input");
   input.type = "text";
-  input.placeholder = "文件夹名称";
+  input.placeholder = t("modal.folderName");
   input.maxLength = 64;
   input.style.cssText = "flex:1;background:var(--bg-tertiary);border:1px solid var(--accent);border-radius:3px;color:var(--text-primary);padding:4px 8px;font-size:12px;outline:none";
   var confirmBtn = document.createElement("button");
@@ -829,12 +1215,12 @@ document.getElementById("new-folder-btn").addEventListener("click", function (e)
       body: JSON.stringify({ name: name }),
     }).then(function (r) { return r.json(); }).then(function (data) {
       if (data.code === 100) {
-        showToast("文件夹「" + name + "」已创建", "success");
+        showToast(t("toast.folderCreated") + name + t("toast.folderCreated2"), "success");
         loadFolderTree();
       } else {
-        showToast(data.message || "创建失败", "error");
+        showToast(data.message || t("toast.createFailed"), "error");
       }
-    }).catch(function () { showToast("创建失败", "error"); });
+    }).catch(function () { showToast(t("toast.createFailed"), "error"); });
   }
 
   input.addEventListener("keydown", function (ev) {
@@ -852,35 +1238,35 @@ document.getElementById("new-folder-btn").addEventListener("click", function (e)
 });
 
 function renameFolderPrompt(folderId, oldName) {
-  var name = prompt("重命名文件夹:", oldName);
+  var name = prompt(t("confirm.renameFolder"), oldName);
   if (!name || !name.trim() || name.trim() === oldName) return;
   name = name.trim();
   fetch(BACKEND_URL + "/api/v1/knowledge/folders/" + folderId + "?name=" + encodeURIComponent(name), {
     method: "PUT",
   }).then(function (r) { return r.json(); }).then(function (data) {
     if (data.code === 100) {
-      showToast("已重命名为「" + name + "」", "success");
+      showToast(t("toast.folderRenamed") + name + t("toast.folderRenamed2"), "success");
       loadFolderTree();
     } else {
-      showToast(data.message || "重命名失败", "error");
+      showToast(data.message || t("toast.renameFailed"), "error");
     }
-  }).catch(function () { showToast("重命名失败", "error"); });
+  }).catch(function () { showToast(t("toast.renameFailed"), "error"); });
 }
 
 function deleteFolderConfirm(folderId) {
-  showConfirm("删除文件夹", "删除文件夹后其中的文档不会被删除，仅解除关联。确认？", async function () {
+  showConfirm(t("confirm.deleteFolderTitle"), t("confirm.deleteFolderMsg"), async function () {
     try {
       var resp = await fetch(BACKEND_URL + "/api/v1/knowledge/folders/" + folderId, { method: "DELETE" });
       var data = await resp.json();
       if (data.code === 100) {
-        showToast("文件夹已删除", "success");
+        showToast(t("toast.folderDeleted"), "success");
         if (currentFolderId === folderId) { currentFolderId = ""; }
         loadFolderTree();
         loadKnowledgeList();
       } else {
-        showToast(data.message || "删除失败", "error");
+        showToast(data.message || t("toast.deleteFailed"), "error");
       }
-    } catch (_) { showToast("删除失败", "error"); }
+    } catch (_) { showToast(t("toast.deleteFailed"), "error"); }
   });
 }
 
@@ -893,7 +1279,7 @@ async function loadKnowledgeList() {
     var resp = await fetch(url);
     var data = await resp.json();
     if (!data.data || data.data.length === 0) {
-      container.innerHTML = '<p class="empty-state">尚未上传任何文档</p>';
+      container.innerHTML = '<p class="empty-state">' + t("kb.emptyState") + '</p>';
       return;
     }
     // 按 import_group_id 分组
@@ -928,9 +1314,9 @@ async function loadKnowledgeList() {
             '<div class="version-group-info">' +
               '<span class="version-group-name">' + escapeHtml(latest.original_name || latest.file_name) + '</span>' +
               '<span class="version-badge">v' + latest.version + '</span>' +
-              '<span class="version-group-meta">共 ' + g.length + ' 个版本</span>' +
+              '<span class="version-group-meta">' + t("kb.versions") + g.length + t("kb.versionsSuffix") + '</span>' +
             '</div>' +
-            '<span style="font-size:11px;color:var(--text-secondary)">展开 ▼</span>' +
+            '<span style="font-size:11px;color:var(--text-secondary)">' + t("kb.expand") + '</span>' +
           '</div>' +
           '<div class="version-list" style="display:none" id="vg-list-' + gidSafe + '">' +
             g.map(function (v) {
@@ -940,7 +1326,7 @@ async function loadKnowledgeList() {
                 '<div class="version-item-info">' +
                   '<span class="version-badge" style="opacity:' + (v.version === latest.version ? '1' : '0.6') + '">v' + v.version + '</span>' +
                   '<span class="version-item-time">' + (v.create_time || "") + '</span>' +
-                  '<span style="font-size:11px;color:var(--text-secondary)">' + formatSize(v.file_size) + ' · ' + v.total_pages + ' 块</span>' +
+                  '<span style="font-size:11px;color:var(--text-secondary)">' + formatSize(v.file_size) + ' · ' + v.total_pages + t("kb.pageSize") + '</span>' +
                 '</div>' +
                 '<div class="version-item-actions">' +
                   renderFileActions(v) +
@@ -956,9 +1342,9 @@ async function loadKnowledgeList() {
       html += renderFileItem(f);
     });
 
-    container.innerHTML = html || '<p class="empty-state">尚未上传任何文档</p>';
+    container.innerHTML = html || '<p class="empty-state">' + t("kb.emptyState") + '</p>';
   } catch (_) {
-    container.innerHTML = '<p class="empty-state">无法加载知识库数据</p>';
+    container.innerHTML = '<p class="empty-state">' + t("kb.dataError") + '</p>';
   }
 }
 
@@ -972,8 +1358,8 @@ function renderFileItem(f) {
       '</span>' +
       '<span class="kb-file-meta">' +
         '<span>' + formatSize(f.file_size) + '</span>' +
-        '<span>' + f.total_pages + ' 块</span>' +
-        '<span class="kb-isolate-toggle" title="点击切换隔离模式" onclick="event.stopPropagation();changeIsolate(\'' + f.file_id + '\')">' +
+        '<span>' + f.total_pages + t("kb.pageSize") + '</span>' +
+        '<span class="kb-isolate-toggle" title="' + t("kb.clickSwitchMode") + '" onclick="event.stopPropagation();changeIsolate(\'' + f.file_id + '\')">' +
           '<span class="kb-badge kb-badge-' + f.isolate_mode + '">' + f.isolate_mode + '</span>' +
           ' ↻' +
         '</span>' +
@@ -989,14 +1375,14 @@ function renderFileItem(f) {
 var folderList = [];
 
 function renderFileActions(f) {
-  var folderOpts = '<option value="">移至文件夹...</option>';
+  var folderOpts = '<option value="">' + t("kb.moveToFolder") + '</option>';
   folderList.forEach(function (fl) {
     var sel = (f.folder_id === fl.folder_id) ? " selected" : "";
     folderOpts += '<option value="' + fl.folder_id + '"' + sel + '>' + escapeHtml(fl.name) + '</option>';
   });
-  return '<button class="btn btn-tiny" onclick="downloadDocument(\'' + f.file_id + '\')" title="下载原文件">下载</button>' +
+  return '<button class="btn btn-tiny" onclick="downloadDocument(\'' + f.file_id + '\')" title="' + t("kb.downloadTitle") + '">' + t("kb.download") + '</button>' +
     '<select class="export-select" onchange="exportDocument(\'' + f.file_id + '\',this.value);this.value=\'\'">' +
-      '<option value="">导出...</option>' +
+      '<option value="">' + t("kb.export") + '</option>' +
       '<option value="txt">TXT</option>' +
       '<option value="md">MD</option>' +
       '<option value="docx">DOCX</option>' +
@@ -1004,9 +1390,9 @@ function renderFileActions(f) {
     '<select class="export-select" onchange="moveFileToFolder(\'' + f.file_id + '\',this.value)">' +
       folderOpts +
     '</select>' +
-    '<button class="btn btn-tiny" onclick="playTTS(\'' + f.file_id + '\')" title="播放文档内容">🔊 TTS</button>' +
-    '<button class="btn btn-tiny btn-primary" onclick="translateDocument(\'' + f.file_id + '\',\'' + escapeHtml(f.file_name).replace(/'/g, "\\'") + '\')" title="全文翻译">翻译</button>' +
-    '<button class="btn btn-tiny btn-danger" onclick="deleteKnowledge(\'' + f.file_id + '\')">删除</button>';
+    '<button class="btn btn-tiny" onclick="playTTS(\'' + f.file_id + '\')" title="' + t("kb.ttsDocTitle") + '">🔊 TTS</button>' +
+    '<button class="btn btn-tiny btn-primary" onclick="translateDocument(\'' + f.file_id + '\',\'' + escapeHtml(f.file_name).replace(/'/g, "\\'") + '\')" title="' + t("kb.translateTitle") + '">' + t("kb.translateBtn") + '</button>' +
+    '<button class="btn btn-tiny btn-danger" onclick="deleteKnowledge(\'' + f.file_id + '\')">' + t("kb.delete") + '</button>';
 }
 
 function toggleVersionGroup(gid) {
@@ -1015,11 +1401,11 @@ function toggleVersionGroup(gid) {
   if (list.style.display === "none") {
     list.style.display = "block";
     var header = list.previousElementSibling;
-    if (header) header.querySelector("span:last-child").textContent = "收起 ▲";
+    if (header) header.querySelector("span:last-child").textContent = t("kb.collapse");
   } else {
     list.style.display = "none";
     var header = list.previousElementSibling;
-    if (header) header.querySelector("span:last-child").textContent = "展开 ▼";
+    if (header) header.querySelector("span:last-child").textContent = t("kb.expand");
   }
 }
 
@@ -1028,7 +1414,7 @@ function downloadDocument(fileId) {
   a.href = BACKEND_URL + "/api/v1/knowledge/download/" + fileId;
   a.download = "";
   a.click();
-  showToast("文档下载中...", "success");
+  showToast(t("toast.docDownloading"), "success");
 }
 
 async function exportDocument(fileId, format) {
@@ -1039,14 +1425,14 @@ async function exportDocument(fileId, format) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ file_id: fileId, format: format }),
     });
-    if (!resp.ok) { showToast("导出失败", "error"); return; }
+    if (!resp.ok) { showToast(t("toast.exportFailed"), "error"); return; }
     var blob = await resp.blob();
     var disposition = resp.headers.get("Content-Disposition") || "";
     var fname = disposition.match(/filename="?(.+?)"?($|;)/);
     var filename = fname ? fname[1] : "export." + format;
     downloadBlob(blob, filename);
-    showToast("已导出为 " + filename, "success");
-  } catch (_) { showToast("导出失败", "error"); }
+    showToast(t("toast.exportedAs") + filename, "success");
+  } catch (_) { showToast(t("toast.exportFailed"), "error"); }
 }
 
 document.getElementById("upload-btn").addEventListener("click", function () {
@@ -1067,7 +1453,7 @@ document.getElementById("file-input").addEventListener("change", async function 
 
   var uploadBtn = document.getElementById("upload-btn");
   uploadBtn.disabled = true;
-  uploadBtn.textContent = "上传中...";
+  uploadBtn.textContent = t("kb.uploading");
 
   try {
     var resp = await fetch(BACKEND_URL + "/api/v1/knowledge/upload", {
@@ -1078,7 +1464,7 @@ document.getElementById("file-input").addEventListener("change", async function 
     if (data.code === 100) {
       var fileId = data.data ? data.data.file_id : null;
       var docName = file.name.replace(/\.[^.]+$/, "");
-      showToast("文档上传成功，正在创建文档会话...", "success");
+      showToast(t("toast.uploadSuccess"), "success");
 
       // 自动创建同名会话 + 加载文档全文到上下文
       if (fileId) {
@@ -1103,22 +1489,22 @@ document.getElementById("file-input").addEventListener("change", async function 
             if (chatNav) chatNav.classList.add("active");
             Object.values(pages).forEach(function (p) { if (p) p.classList.remove("active"); });
             if (pages.chat) pages.chat.classList.add("active");
-            chatMessages.innerHTML = '<div class="chat-placeholder"><div class="placeholder-icon"><svg viewBox="0 0 24 24" width="48" height="48"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" fill="currentColor" opacity="0.3"/></svg></div><p>已加载文档: ' + escapeHtml(docName) + '</p><p class="sub-text">文档全文已注入 AI 上下文，可直接提问</p></div>';
-            showToast("已创建会话「" + docName + "」并加载文档", "success");
+            chatMessages.innerHTML = '<div class="chat-placeholder"><div class="placeholder-icon"><svg viewBox="0 0 24 24" width="48" height="48"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" fill="currentColor" opacity="0.3"/></svg></div><p>' + t("chat.loadedDoc") + escapeHtml(docName) + '</p><p class="sub-text">' + t("chat.loadedDocSub") + '</p></div>';
+            showToast(t("toast.sessionCreated") + docName + t("toast.sessionCreated2"), "success");
           }
         } catch (_) {}
       }
       loadKnowledgeList();
       loadFolderTree();
     } else {
-      showToast(data.message || "上传失败", "error");
+      showToast(data.message || t("toast.uploadFailed"), "error");
     }
   } catch (err) {
-    showToast("上传失败：" + err.message, "error");
+    showToast(t("toast.uploadFailed2") + err.message, "error");
   }
 
   uploadBtn.disabled = false;
-  uploadBtn.textContent = "上传文档";
+  uploadBtn.textContent = t("kb.upload");
   e.target.value = "";
 });
 
@@ -1131,24 +1517,24 @@ async function moveFileToFolder(fileId, folderId) {
     });
     var data = await resp.json();
     if (data.code === 100) {
-      showToast("文件已移动", "success");
+      showToast(t("toast.fileMoved"), "success");
       loadKnowledgeList();
       loadFolderTree();
     } else {
-      showToast(data.message || "移动失败", "error");
+      showToast(data.message || t("toast.moveFailed"), "error");
     }
-  } catch (_) { showToast("移动失败", "error"); }
+  } catch (_) { showToast(t("toast.moveFailed"), "error"); }
 }
 
 async function deleteKnowledge(fileId) {
-  showConfirm("删除文档", "确认永久删除此文档？此操作不可撤销。", async function () {
+  showConfirm(t("confirm.deleteDocTitle"), t("confirm.deleteDocMsg"), async function () {
     try {
       await fetch(BACKEND_URL + "/api/v1/knowledge/delete?file_id=" + fileId, { method: "DELETE" });
       loadKnowledgeList();
       loadFolderTree();
-      showToast("文档已删除", "success");
+      showToast(t("toast.docDeleted"), "success");
     } catch (_) {
-      showToast("删除失败", "error");
+      showToast(t("toast.deleteFailed"), "error");
     }
   });
 }
@@ -1165,7 +1551,7 @@ document.getElementById("asr-file-input").addEventListener("change", async funct
   // 前端 WAV 格式拦截
   var ext = (file.name.split(".").pop() || "").toLowerCase();
   if (ext !== "wav") {
-    showToast("仅支持标准 WAV 格式音频文件", "error");
+    showToast(t("toast.wavOnly"), "error");
     e.target.value = "";
     return;
   }
@@ -1184,24 +1570,24 @@ dropZone.addEventListener("drop", function (e) {
   var file = e.dataTransfer.files[0];
   if (file) {
     var ext = (file.name.split(".").pop() || "").toLowerCase();
-    if (ext !== "wav") { showToast("仅支持 WAV 格式", "error"); return; }
+    if (ext !== "wav") { showToast(t("toast.wavOnlyShort"), "error"); return; }
     submitASRTask(file);
   }
 });
 
 async function submitASRTask(file) {
-  showToast("ASR 任务投递中...", "");
+  showToast(t("toast.asrSubmitting"), "");
 
   // 优先使用 Electron 本地路径直传 (更快，免上传)
   if (window.qvacAPI && file.path) {
     try {
       var resp = await window.qvacAPI.submitASR(file.path);
       if (resp.code === 160) {
-        showToast("ASR 任务已投递", "success");
+        showToast(t("toast.asrSubmitted"), "success");
         startASRPolling(resp.data.task_id);
         return;
       } else {
-        showToast(resp.message || "ASR 投递失败", "error");
+        showToast(resp.message || t("toast.asrSubmitFail"), "error");
         return;
       }
     } catch (err) {
@@ -1220,13 +1606,13 @@ async function submitASRTask(file) {
     });
     var uploadData = await uploadResp.json();
     if (uploadData.code === 160) {
-      showToast("ASR 任务已投递", "success");
+      showToast(t("toast.asrSubmitted"), "success");
       startASRPolling(uploadData.data.task_id);
     } else {
-      showToast(uploadData.message || "ASR 投递失败", "error");
+      showToast(uploadData.message || t("toast.asrSubmitFail"), "error");
     }
   } catch (err) {
-    showToast("ASR 投递异常: " + err.message, "error");
+    showToast(t("toast.asrException") + err.message, "error");
   }
 }
 
@@ -1247,34 +1633,34 @@ function startASRPolling(taskId) {
         var progress = data.data.progress_percent || 0;
         document.getElementById("asr-progress-bar").style.width = progress + "%";
         document.getElementById("asr-progress-text").textContent = progress.toFixed(1) + "%";
-        document.getElementById("asr-remaining-text").textContent = "剩余: " + (data.data.remaining_time_s || 0).toFixed(0) + "s";
+        document.getElementById("asr-remaining-text").textContent = t("asr.remaining") + (data.data.remaining_time_s || 0).toFixed(0) + "s";
       } else if (data.code === 100) {
         clearInterval(asrPollTimer);
         asrPollTimer = null;
         document.getElementById("asr-progress-bar").style.width = "100%";
         document.getElementById("asr-progress-text").textContent = "100%";
-        document.getElementById("asr-remaining-text").textContent = "完成";
-        document.getElementById("asr-task-status").textContent = "已完成";
+        document.getElementById("asr-remaining-text").textContent = t("asr.done");
+        document.getElementById("asr-task-status").textContent = t("asr.completed");
         document.getElementById("asr-task-status").className = "badge badge-idle";
 
         // 显示结果
         var resultPanel = document.getElementById("asr-result-panel");
         resultPanel.classList.remove("hidden");
         document.getElementById("asr-result-duration").textContent =
-          "时长: " + (data.data.duration || 0).toFixed(1) + "s";
-        var transcribedText = data.data.transcribed_text || "(空)";
+          t("asr.duration") + (data.data.duration || 0).toFixed(1) + "s";
+        var transcribedText = data.data.transcribed_text || t("asr.empty");
         document.getElementById("asr-result-text").textContent = transcribedText;
         // 保存结果供导出和导入
         window._lastASRText = transcribedText;
         window._lastASRAudioName = data.data.audio_name || "transcription";
-        window._lastASRArchiveId = data.data.archive_id;  // 供导入知识库使用
+        window._lastASRArchiveId = data.data.archive_id;  // for import-to-kb
 
         loadASRArchives();
-        showToast("ASR 转写完成", "success");
+        showToast(t("toast.asrDone"), "success");
       } else if (data.code === 500) {
         clearInterval(asrPollTimer);
         asrPollTimer = null;
-        showToast("ASR 任务失败: " + (data.message || "未知错误"), "error");
+        showToast(t("toast.asrTaskFail") + (data.message || t("toast.unknownError")), "error");
       }
     } catch (_) {}
   }, 2000);
@@ -1285,13 +1671,13 @@ async function exportASRResult() {
   if (!archiveId) {
     // 降级：无 archive_id 时用前端文本通过 Blob 导出
     var text = window._lastASRText || "";
-    if (!text || text === "(空)") { showToast("暂无可导出的转写结果", "warn"); return; }
+    if (!text || text === "(空)") { showToast(t("toast.noResultExport"), "warn"); return; }
     var name = (window._lastASRAudioName || "transcription").replace(/\.[^.]+$/, "");
     var format = document.getElementById("asr-export-format").value;
     var mime = format === "md" ? "text/markdown" : "text/plain;charset=utf-8";
     var blob = new Blob([text], { type: mime });
     downloadBlob(blob, name + "." + format);
-    showToast("已导出", "success");
+    showToast(t("toast.exported"), "success");
     return;
   }
   var format = document.getElementById("asr-export-format").value;
@@ -1301,14 +1687,14 @@ async function exportASRResult() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ archive_id: archiveId, format: format }),
     });
-    if (!resp.ok) { showToast("导出失败", "error"); return; }
+    if (!resp.ok) { showToast(t("toast.exportFailed"), "error"); return; }
     var blob = await resp.blob();
     var disposition = resp.headers.get("Content-Disposition") || "";
     var fname = disposition.match(/filename="?(.+?)"?($|;)/);
     var filename = fname ? fname[1] : "transcription." + format;
     downloadBlob(blob, filename);
-    showToast("已导出为 " + filename, "success");
-  } catch (_) { showToast("导出失败", "error"); }
+    showToast(t("toast.exportedAs") + filename, "success");
+  } catch (_) { showToast(t("toast.exportFailed"), "error"); }
 }
 
 async function loadASRArchives() {
@@ -1317,7 +1703,7 @@ async function loadASRArchives() {
     var resp = await fetch(BACKEND_URL + "/api/v1/asr/list");
     var data = await resp.json();
     if (!data.data || data.data.length === 0) {
-      container.innerHTML = '<p class="empty-state">暂无转写记录</p>';
+      container.innerHTML = '<p class="empty-state">' + t("asr.archiveEmpty") + '</p>';
       return;
     }
     container.innerHTML = data.data.map(function (a) {
@@ -1331,17 +1717,17 @@ async function loadASRArchives() {
         '</div>' +
         '<div class="kb-item-actions" style="display:flex;align-items:center;gap:6px">' +
           '<select class="export-select" onchange="exportASRArchive(\'' + aid + '\',this.value);this.value=\'\'">' +
-            '<option value="">导出...</option>' +
+            '<option value="">' + t("kb.export") + '</option>' +
             '<option value="txt">TXT</option>' +
             '<option value="md">MD</option>' +
             '<option value="docx">DOCX</option>' +
           '</select>' +
-          '<button class="btn btn-tiny btn-primary" onclick="showASRImportDialog(\'' + aid + '\',\'' + escapeHtml(a.audio_name).replace(/'/g, "\\'") + '\')">导入知识库</button>' +
+          '<button class="btn btn-tiny btn-primary" onclick="showASRImportDialog(\'' + aid + '\',\'' + escapeHtml(a.audio_name).replace(/'/g, "\\'") + '\')">' + t("asr.importKbBtn") + '</button>' +
         '</div>' +
       '</div>';
     }).join("");
   } catch (_) {
-    container.innerHTML = '<p class="empty-state">无法加载转写记录</p>';
+    container.innerHTML = '<p class="empty-state">' + t("asr.archiveError") + '</p>';
   }
 }
 
@@ -1353,14 +1739,14 @@ async function exportASRArchive(archiveId, format) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ archive_id: archiveId, format: format }),
     });
-    if (!resp.ok) { showToast("导出失败", "error"); return; }
+    if (!resp.ok) { showToast(t("toast.exportFailed"), "error"); return; }
     var blob = await resp.blob();
     var disposition = resp.headers.get("Content-Disposition") || "";
     var fname = disposition.match(/filename="?(.+?)"?($|;)/);
     var filename = fname ? fname[1] : "transcription." + format;
     downloadBlob(blob, filename);
-    showToast("已导出为 " + filename, "success");
-  } catch (_) { showToast("导出失败", "error"); }
+    showToast(t("toast.exportedAs") + filename, "success");
+  } catch (_) { showToast(t("toast.exportFailed"), "error"); }
 }
 
 // ---- ASR 导入知识库弹窗 ----
@@ -1369,7 +1755,7 @@ var currentImportArchiveId = null;
 function showASRImportDialog(archiveId, audioName) {
   // 如果从历史记录调用，使用传入的 archiveId；否则用当前结果
   currentImportArchiveId = archiveId || window._lastASRArchiveId || null;
-  if (!currentImportArchiveId) { showToast("没有可导入的转写结果", "warn"); return; }
+  if (!currentImportArchiveId) { showToast(t("toast.noAsrImport"), "warn"); return; }
 
   var title = audioName || window._lastASRAudioName || "";
   document.getElementById("asr-import-title").value = title;
@@ -1384,7 +1770,7 @@ async function submitASRImport() {
   var folderId = document.getElementById("asr-import-folder").value;
   var submitBtn = document.getElementById("asr-import-submit-btn");
   submitBtn.disabled = true;
-  submitBtn.textContent = "导入中...";
+  submitBtn.textContent = t("modal.importing");
 
   try {
     var body = {
@@ -1403,18 +1789,18 @@ async function submitASRImport() {
     });
     var data = await resp.json();
     if (data.code === 100) {
-      showToast("已导入知识库 (" + (data.data && data.data.chunk_count || 0) + " 个分片)", "success");
+      showToast(t("toast.importedKb") + (data.data && data.data.chunk_count || 0) + t("toast.importedKb2"), "success");
       document.getElementById("asr-import-modal").classList.add("hidden");
       loadFolderTree();
       loadKnowledgeList();
     } else {
-      showToast(data.message || "导入失败", "error");
+      showToast(data.message || t("toast.importFailed"), "error");
     }
   } catch (_) {
-    showToast("导入请求失败", "error");
+    showToast(t("toast.importReqFailed"), "error");
   }
   submitBtn.disabled = false;
-  submitBtn.textContent = "确认导入";
+  submitBtn.textContent = t("modal.confirmImport");
 }
 
 // 绑定导入弹窗按钮
@@ -1440,14 +1826,14 @@ async function loadAuditLogs(page) {
     renderAuditPagination(data.total_records, page);
   } catch (_) {
     document.getElementById("audit-tbody").innerHTML =
-      '<tr><td colspan="4" class="empty-state">无法加载审计数据 — 后端未连接</td></tr>';
+      '<tr><td colspan="4" class="empty-state">' + t("audit.noConnection") + '</td></tr>';
   }
 }
 
 function renderAuditTable(logs) {
   var tbody = document.getElementById("audit-tbody");
   if (!logs || logs.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="4" class="empty-state">暂无日志记录</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="4" class="empty-state">' + t("audit.noData") + '</td></tr>';
     return;
   }
   tbody.innerHTML = logs.map(function (l) {
@@ -1464,19 +1850,19 @@ function renderAuditPagination(total, page) {
   var totalPages = Math.ceil(total / 20);
   var div = document.getElementById("audit-pagination");
   if (totalPages <= 1) {
-    div.innerHTML = '<span>共 ' + total + ' 条</span>';
+    div.innerHTML = '<span>' + t("audit.total") + total + t("audit.records") + '</span>';
     return;
   }
   div.innerHTML =
-    '<span>共 ' + total + ' 条 / ' + totalPages + ' 页</span>' +
-    '<button class="btn btn-small" ' + (page <= 1 ? "disabled" : "") + ' onclick="loadAuditLogs(' + (page - 1) + ')">上一页</button>' +
-    '<button class="btn btn-small" ' + (page >= totalPages ? "disabled" : "") + ' onclick="loadAuditLogs(' + (page + 1) + ')">下一页</button>';
+    '<span>' + t("audit.total") + total + t("audit.records") + t("audit.pageInfo") + totalPages + t("audit.pages") + '</span>' +
+    '<button class="btn btn-small" ' + (page <= 1 ? "disabled" : "") + ' onclick="loadAuditLogs(' + (page - 1) + ')">' + t("audit.prev") + '</button>' +
+    '<button class="btn btn-small" ' + (page >= totalPages ? "disabled" : "") + ' onclick="loadAuditLogs(' + (page + 1) + ')">' + t("audit.next") + '</button>';
 }
 
 document.getElementById("export-logs-btn").addEventListener("click", async function () {
   var btn = document.getElementById("export-logs-btn");
   btn.disabled = true;
-  btn.textContent = "导出中...";
+  btn.textContent = t("audit.exporting");
 
   try {
     var resp = await fetch(BACKEND_URL + "/api/v1/log/export/all?format=json&api_version=v1");
@@ -1498,13 +1884,13 @@ document.getElementById("export-logs-btn").addEventListener("click", async funct
     var csvBlob = new Blob([csvHeader + csvLines.join("\n")], { type: "text/csv" });
     setTimeout(function () { downloadBlob(csvBlob, "audit-log-" + timestamp + ".csv"); }, 300);
 
-    showToast("已导出 JSON + CSV (" + logs.length + " 条)", "success");
+    showToast(t("toast.auditExported") + logs.length + t("toast.auditExported2"), "success");
   } catch (_) {
-    showToast("导出失败", "error");
+    showToast(t("toast.exportFailed"), "error");
   }
 
   btn.disabled = false;
-  btn.textContent = "一键导出 (JSON+CSV)";
+  btn.textContent = t("audit.exportBtn");
 });
 
 function downloadBlob(blob, filename) {
@@ -1522,10 +1908,10 @@ async function loadSystemState() {
     var resp = await fetch(BACKEND_URL + "/api/v1/system/state");
     var data = await resp.json();
     document.getElementById("state-master").textContent = data.master_state + " " + data.master_name;
-    document.getElementById("state-workers").textContent = (data.active_workers || []).join(", ") || "无";
+    document.getElementById("state-workers").textContent = (data.active_workers || []).join(", ") || t("settings.none");
 
     // Kill Switch
-    document.getElementById("state-ks").textContent = data.master_state === 999 ? "已锁定" : "正常";
+    document.getElementById("state-ks").textContent = data.master_state === 999 ? t("settings.locked") : t("settings.normal");
     document.getElementById("state-ks").style.color = data.master_state === 999 ? "var(--error)" : "var(--success)";
   } catch (_) {}
 
@@ -1534,13 +1920,13 @@ async function loadSystemState() {
     var credResp = await fetch(BACKEND_URL + "/api/v1/system/credential/status");
     var credData = await credResp.json();
     if (credData.data) {
-      document.getElementById("sec-cred").textContent = credData.data.credential_present ? "已托管" : "缺失";
+      document.getElementById("sec-cred").textContent = credData.data.credential_present ? t("settings.managed") : t("settings.missing");
       document.getElementById("sec-cred").style.color = credData.data.credential_present ? "var(--success)" : "var(--error)";
-      document.getElementById("sec-enc").textContent = credData.data.credential_present ? "AES-256-GCM" : "明文 (降级)";
+      document.getElementById("sec-enc").textContent = credData.data.credential_present ? t("settings.aes256") : t("settings.plaintext");
       document.getElementById("sec-enc").style.color = credData.data.credential_present ? "var(--success)" : "var(--warning)";
 
       if (!credData.data.credential_present) {
-        showToast("凭据丢失，请在设置页导入恢复密钥", "error");
+        showToast(t("toast.credMissing"), "error");
       }
     }
   } catch (_) {}
@@ -1582,10 +1968,10 @@ document.getElementById("export-key-btn").addEventListener("click", async functi
       localStorage.setItem("qvac_key_exported", "1");
       showToast("恢复密钥已下载", "success");
     } else {
-      showToast(data.message || "导出失败", "error");
+      showToast(data.message || t("toast.exportFailed"), "error");
     }
   } catch (_) {
-    showToast("导出请求失败", "error");
+    showToast(t("toast.exportReqFailed"), "error");
   }
 });
 
@@ -1600,7 +1986,7 @@ document.getElementById("gen-mnemonic-btn").addEventListener("click", async func
       // 复用 setup modal
       document.getElementById("setup-done-btn").onclick = function () {
         document.getElementById("setup-modal").classList.add("hidden");
-        showToast("请妥善保管助记词", "warn");
+        showToast(t("toast.mnemonicSaved"), "warn");
       };
     }
   } catch (_) {}
@@ -1613,7 +1999,7 @@ async function checkLockState() {
     var data = await resp.json();
     if (data.master_state === 999) {
       overlay.classList.remove("hidden");
-      overlayText.textContent = "检测到程序异常网络行为，AI 功能已锁定。";
+      overlayText.textContent = t("overlay.locked");
       sendBtn.disabled = true;
       chatInput.disabled = true;
     } else {
@@ -1638,7 +2024,7 @@ async function pollCredentialStatus() {
     if (data.data && !data.data.credential_present) {
       if (!credentialLostNotified) {
         credentialLostNotified = true;
-        showToast("检测到加密凭据丢失！请立即导入恢复密钥", "error");
+        showToast(t("toast.credMissing2"), "error");
         document.getElementById("credential-modal").classList.remove("hidden");
       }
     } else {
@@ -1667,7 +2053,7 @@ function formatSize(bytes) {
 function updateKBBatchCount() {
   var checks = document.querySelectorAll("#knowledge-list .kb-check:checked");
   var count = checks.length;
-  document.getElementById("kb-batch-count").textContent = "已选 " + count + " 项";
+  document.getElementById("kb-batch-count").textContent = t("kb.selected") + count + t("kb.selectedItems");
   document.getElementById("kb-check-all").checked = false;
 }
 
@@ -1684,7 +2070,7 @@ async function changeIsolate(fileId) {
     var resp = await fetch(BACKEND_URL + "/api/v1/knowledge/list");
     var data = await resp.json();
     var file = (data.data || []).find(function (f) { return f.file_id === fileId; });
-    if (!file) { showToast("文档未找到", "error"); return; }
+    if (!file) { showToast(t("toast.docNotFound"), "error"); return; }
     var curMode = file.isolate_mode;
     var nextIdx = (modes.indexOf(curMode) + 1) % modes.length;
     var nextMode = modes[nextIdx];
@@ -1695,12 +2081,12 @@ async function changeIsolate(fileId) {
       body: JSON.stringify({ file_id: fileId, isolate_mode: nextMode, session_id: currentSessionId }),
     });
     if (putResp.ok) {
-      showToast("隔离模式已切换为: " + nextMode, "success");
+      showToast(t("toast.isolateChanged") + nextMode, "success");
       loadKnowledgeList();
     } else {
-      showToast("切换失败", "error");
+      showToast(t("toast.switchFailed"), "error");
     }
-  } catch (_) { showToast("操作失败", "error"); }
+  } catch (_) { showToast(t("toast.opFailed"), "error"); }
 }
 
 async function batchIsolate(mode) {
@@ -1708,7 +2094,7 @@ async function batchIsolate(mode) {
   var checks = document.querySelectorAll("#knowledge-list .kb-check:checked");
   var fileIds = [];
   checks.forEach(function (c) { fileIds.push(c.dataset.fileId); });
-  if (fileIds.length === 0) { showToast("请先选择文档", "warn"); return; }
+  if (fileIds.length === 0) { showToast(t("toast.selectDocs"), "warn"); return; }
   try {
     var resp = await fetch(BACKEND_URL + "/api/v1/knowledge/batch/isolate", {
       method: "POST",
@@ -1716,20 +2102,20 @@ async function batchIsolate(mode) {
       body: JSON.stringify({ file_ids: fileIds, isolate_mode: mode, session_id: currentSessionId }),
     });
     if (resp.ok) {
-      showToast("已将 " + fileIds.length + " 个文档设为: " + mode, "success");
+      showToast(t("toast.batchIsolated2") + fileIds.length + t("toast.batchIsolated") + mode, "success");
       loadKnowledgeList();
     }
-  } catch (_) { showToast("批量隔离失败", "error"); }
+  } catch (_) { showToast(t("toast.batchIsolateFail"), "error"); }
 }
 
 async function batchKnowledgeAction(action) {
   var checks = document.querySelectorAll("#knowledge-list .kb-check:checked");
   var fileIds = [];
   checks.forEach(function (c) { fileIds.push(c.dataset.fileId); });
-  if (fileIds.length === 0) { showToast("请先选择文档", "warn"); return; }
+  if (fileIds.length === 0) { showToast(t("toast.selectDocs"), "warn"); return; }
 
   if (action === "delete") {
-    showConfirm("批量删除", "确定要删除选中的 " + fileIds.length + " 个文档吗？此操作不可恢复。", async function () {
+    showConfirm(t("confirm.batchDeleteTitle"), t("confirm.batchDeleteMsg") + fileIds.length + t("confirm.batchDeleteMsg2"), async function () {
       try {
         var resp = await fetch(BACKEND_URL + "/api/v1/knowledge/batch/delete", {
           method: "POST",
@@ -1737,13 +2123,13 @@ async function batchKnowledgeAction(action) {
           body: JSON.stringify({ file_ids: fileIds }),
         });
         var data = await resp.json();
-        showToast("已删除 " + (data.data ? data.data.deleted_count : 0) + " 个文档", "success");
+        showToast(t("toast.batchDeleted") + (data.data ? data.data.deleted_count : 0) + t("toast.batchDeleted2"), "success");
         loadKnowledgeList();
-      } catch (_) { showToast("批量删除失败", "error"); }
+      } catch (_) { showToast(t("toast.batchDeleteFail"), "error"); }
     });
   } else if (action === "translate") {
     var targetLang2 = document.getElementById("tr-target-lang-select").value || "zh";
-    showToast("正在批量翻译 " + fileIds.length + " 个文档...", "success");
+    showToast(t("toast.batchTranslating") + fileIds.length + t("toast.batchTranslating2"), "success");
     try {
       var resp = await fetch(BACKEND_URL + "/api/v1/knowledge/batch/translate", {
         method: "POST",
@@ -1758,11 +2144,11 @@ async function batchKnowledgeAction(action) {
             addTranslateHistory(r.file_id, "", r.translated_text);
           }
         });
-        showToast("翻译完成，点击翻译页面查看", "success");
+        showToast(t("toast.batchTrDone"), "success");
         // 跳转到翻译页
         document.querySelector(".nav-item[data-page=translate]").click();
       }
-    } catch (_) { showToast("批量翻译失败", "error"); }
+    } catch (_) { showToast(t("toast.batchTrFail"), "error"); }
   } else if (action === "export") {
     var format = document.getElementById("kb-batch-format") ? document.getElementById("kb-batch-format").value : "txt";
     try {
@@ -1774,12 +2160,12 @@ async function batchKnowledgeAction(action) {
       if (resp2.ok) {
         var blob = await resp2.blob();
         downloadBlob(blob, "knowledge_batch_export.zip");
-        showToast("批量导出完成", "success");
+        showToast(t("toast.batchExportDone"), "success");
       } else {
         var errData = await resp2.json();
-        showToast(errData.message || "批量导出失败", "error");
+        showToast(errData.message || t("toast.batchExportFail"), "error");
       }
-    } catch (_) { showToast("批量导出失败", "error"); }
+    } catch (_) { showToast(t("toast.batchExportFail"), "error"); }
   }
 }
 
@@ -1811,7 +2197,7 @@ async function batchImportFiles(input) {
     } catch (_) { failed++; }
   }
 
-  showToast("导入完成: " + uploaded + " 成功, " + failed + " 失败", uploaded > 0 ? "success" : "error");
+  showToast(t("toast.batchImportDone") + uploaded + t("toast.batchImportOk") + failed + t("toast.batchImportFail2"), uploaded > 0 ? "success" : "error");
   loadKnowledgeList();
   loadFolderTree();
   input.value = "";
@@ -1926,7 +2312,7 @@ function startTTSPlayback() {
 
   utterance.onerror = function (ev) {
     if (ev.error !== "canceled" && ev.error !== "interrupted") {
-      showToast("语音播放出错: " + ev.error, "error");
+      showToast(t("toast.ttsError") + ev.error, "error");
     }
     stopTTS();
   };
@@ -1984,15 +2370,15 @@ async function playTTS(fileId) {
       ttsPlayerState.text = data.data.content;
       ttsPlayerState.totalChars = ttsPlayerState.text.length;
       ttsPlayerState.currentCharIndex = 0;
-      document.getElementById("tts-player-title").textContent = data.data.file_name || "语音播放";
+      document.getElementById("tts-player-title").textContent = data.data.file_name || t("modal.ttsTitle");
       document.getElementById("tts-player-modal").classList.remove("hidden");
       stopTTS();
       startTTSPlayback();
     } else {
-      showToast("无法获取文档内容", "error");
+      showToast(t("toast.ttsNoContent"), "error");
     }
   } catch (_) {
-    showToast("TTS 服务不可用", "error");
+    showToast(t("toast.ttsUnavailable"), "error");
   }
 }
 
@@ -2018,8 +2404,7 @@ function addTranslateHistory(fileId, fileName, translatedText, originalText) {
 
 async function translateDocument(fileId, fileName, silent) {
   var targetLang = document.getElementById("tr-target-lang-select").value || "zh";
-  var langLabels = { zh: "中文", en: "English", ja: "日本語", ko: "한국어", fr: "Français", de: "Deutsch", es: "Español" };
-  if (!silent) showToast("正在翻译为 " + (langLabels[targetLang] || targetLang) + "...", "success");
+  if (!silent) showToast(t("toast.translatingTo") + tLang(targetLang) + t("toast.translatingTo2"), "success");
   showTranslateProgress(targetLang);
   try {
     var resp = await fetch(BACKEND_URL + "/api/v1/knowledge/translate", {
@@ -2039,24 +2424,23 @@ async function translateDocument(fileId, fileName, silent) {
       // 同步语言选择器显示
       document.getElementById("tr-target-lang-select").value = targetLang;
       if (!silent) {
-        showToast("翻译完成", "success");
+        showToast(t("toast.translateDone"), "success");
         document.querySelector(".nav-item[data-page=translate]").click();
       }
       loadTranslateHistory();
     } else {
-      showToast(data.message || "翻译失败", "error");
+      showToast(data.message || t("toast.translateFailed"), "error");
     }
-  } catch (_) { showToast("翻译服务不可用", "error"); }
+  } catch (_) { showToast(t("toast.translateUnavail"), "error"); }
   hideTranslateProgress();
 }
 
 function showTranslateProgress(targetLang) {
-  var langLabels = { zh: "中文", en: "English", ja: "日本語", ko: "한국어", fr: "Français", de: "Deutsch", es: "Español" };
   var modal = document.getElementById("tr-progress-modal");
   var title = document.getElementById("tr-progress-title");
   var hint = document.getElementById("tr-progress-hint");
-  if (title) title.textContent = "正在翻译为 " + (langLabels[targetLang] || targetLang) + "...";
-  if (hint) hint.textContent = "请稍候，翻译完成后将自动显示结果";
+  if (title) title.textContent = t("toast.translatingTo") + tLang(targetLang) + t("toast.translatingTo2");
+  if (hint) hint.textContent = t("tr.progressHint");
   if (modal) modal.classList.remove("hidden");
 }
 
@@ -2075,7 +2459,7 @@ document.getElementById("tr-target-lang-select").addEventListener("change", func
 function loadTranslateHistory() {
   var container = document.getElementById("tr-history-list");
   if (translateHistory.length === 0) {
-    container.innerHTML = '<p class="empty-state">暂无翻译记录</p>';
+    container.innerHTML = '<p class="empty-state">' + t("tr.historyEmpty") + '</p>';
     return;
   }
   container.innerHTML = translateHistory.map(function (h, idx) {
@@ -2091,16 +2475,16 @@ function loadTranslateItem(idx) {
   if (!h) return;
   currentTranslateFileId = h.file_id;
   currentOriginalText = h.original_text || "";
-  document.getElementById("tr-source-text").textContent = h.original_text || "(原文未保存，请重新翻译)";
+  document.getElementById("tr-source-text").textContent = h.original_text || t("tr.origNotSaved");
   document.getElementById("tr-target-text").textContent = h.translated_text;
   document.getElementById("tr-source-name").textContent = h.file_name;
   loadTranslateHistory();
 }
 
 function exportTranslation() {
-  if (!currentTranslateFileId) { showToast("请先选择翻译记录", "warn"); return; }
+  if (!currentTranslateFileId) { showToast(t("toast.selectRecord"), "warn"); return; }
   var h = translateHistory.find(function (x) { return x.file_id === currentTranslateFileId; });
-  if (!h) { showToast("翻译记录未找到", "error"); return; }
+  if (!h) { showToast(t("toast.recordNotFound"), "error"); return; }
 
   var format = document.getElementById("tr-export-format").value;
   var content = h.translated_text;
@@ -2109,26 +2493,26 @@ function exportTranslation() {
 
   if (format === "md") {
     mime = "text/markdown";
-    content = "# " + (h.file_name || "翻译") + "\n\n" + content;
+    content = "# " + (h.file_name || t("kb.translateBtn")) + "\n\n" + content;
   } else if (format === "docx") {
-    showToast("DOCX 导出请使用后端接口", "warn");
+    showToast(t("tr.exportDocxWarn"), "warn");
     return;
   }
 
   var blob = new Blob([content], { type: mime });
   downloadBlob(blob, filename);
-  showToast("已导出: " + filename, "success");
+  showToast(t("toast.exportedAs2") + filename, "success");
 }
 
 async function importTranslationToKB() {
-  if (!currentTranslateFileId) { showToast("请先选择翻译记录", "warn"); return; }
+  if (!currentTranslateFileId) { showToast(t("toast.selectRecord"), "warn"); return; }
   var h = translateHistory.find(function (x) { return x.file_id === currentTranslateFileId; });
-  if (!h) { showToast("翻译记录未找到", "error"); return; }
+  if (!h) { showToast(t("toast.recordNotFound"), "error"); return; }
 
-  document.getElementById("tr-import-title").value = (h.file_name || "translation") + "_中文";
+  document.getElementById("tr-import-title").value = (h.file_name || "translation") + "_" + tLang("zh");
   // 填充文件夹选择
   var folderSelect = document.getElementById("tr-import-folder");
-  folderSelect.innerHTML = '<option value="">根目录</option>';
+  folderSelect.innerHTML = '<option value="">' + t("kb.root") + '</option>';
   folderList.forEach(function (fl) {
     folderSelect.innerHTML += '<option value="' + fl.folder_id + '">' + escapeHtml(fl.name) + '</option>';
   });
@@ -2146,8 +2530,8 @@ async function importTranslationToKB() {
 
   async function handler() {
     submitBtn.disabled = true;
-    submitBtn.textContent = "导入中...";
-    var title = document.getElementById("tr-import-title").value.trim() || (h.file_name + "_中文");
+    submitBtn.textContent = t("modal.importing");
+    var title = document.getElementById("tr-import-title").value.trim() || (h.file_name + "_" + tLang("zh"));
     var format = document.getElementById("tr-import-format").value;
     var isolateMode = document.getElementById("tr-import-isolate").value;
     var folderId = document.getElementById("tr-import-folder").value;
@@ -2169,18 +2553,18 @@ async function importTranslationToKB() {
       });
       var data = await resp.json();
       if (data.code === 100) {
-        showToast("翻译结果已导入知识库", "success");
+        showToast(t("toast.trImportedKb"), "success");
         modal.classList.add("hidden");
         cleanup();
       } else {
-        showToast(data.message || "导入失败", "error");
+        showToast(data.message || t("toast.importFailed"), "error");
         submitBtn.disabled = false;
-        submitBtn.textContent = "确认导入";
+        submitBtn.textContent = t("modal.confirmImport");
       }
     } catch (_) {
-      showToast("导入失败", "error");
+      showToast(t("toast.importFailed"), "error");
       submitBtn.disabled = false;
-      submitBtn.textContent = "确认导入";
+      submitBtn.textContent = t("modal.confirmImport");
     }
   }
 
@@ -2196,7 +2580,7 @@ async function importTranslationToKB() {
 function updateASRBatchCount() {
   var checks = document.querySelectorAll("#asr-archive-list .kb-check:checked");
   var count = checks.length;
-  document.getElementById("asr-batch-count").textContent = "已选 " + count + " 项";
+  document.getElementById("asr-batch-count").textContent = t("kb.selected") + count + t("kb.selectedItems");
   document.getElementById("asr-check-all").checked = false;
 }
 
@@ -2215,7 +2599,7 @@ function getSelectedArchiveIds() {
 
 async function batchASR(action) {
   var ids = getSelectedArchiveIds();
-  if (ids.length === 0) { showToast("请先选择转写记录", "warn"); return; }
+  if (ids.length === 0) { showToast(t("toast.selectAsrRecords"), "warn"); return; }
 
   if (action === "export") {
     var format = document.getElementById("asr-batch-format").value;
@@ -2228,14 +2612,14 @@ async function batchASR(action) {
       if (resp.ok) {
         var blob = await resp.blob();
         downloadBlob(blob, "asr_batch_export.zip");
-        showToast("批量导出完成", "success");
+        showToast(t("toast.batchExportDone"), "success");
       } else {
-        showToast("批量导出失败", "error");
+        showToast(t("toast.batchExportFail"), "error");
       }
-    } catch (_) { showToast("批量导出失败", "error"); }
+    } catch (_) { showToast(t("toast.batchExportFail"), "error"); }
   } else if (action === "import-kb") {
     var format2 = document.getElementById("asr-batch-format").value;
-    showToast("正在批量导入 " + ids.length + " 条记录...", "success");
+    showToast(t("toast.batchAsrImport") + ids.length + t("toast.batchAsrImport2"), "success");
     try {
       var resp2 = await fetch(BACKEND_URL + "/api/v1/asr/batch/import-to-kb", {
         method: "POST",
@@ -2244,11 +2628,11 @@ async function batchASR(action) {
       });
       var data2 = await resp2.json();
       var okCount = (data2.data ? data2.data.results || [] : []).filter(function (r) { return r.status === "ok"; }).length;
-      showToast("成功导入 " + okCount + " / " + ids.length + " 条到知识库", "success");
+      showToast(t("toast.batchAsrOk") + okCount + " / " + ids.length + t("toast.batchAsrOk2"), "success");
       loadFolderTree();
-    } catch (_) { showToast("批量导入失败", "error"); }
+    } catch (_) { showToast(t("toast.batchAsrFail"), "error"); }
   } else if (action === "delete") {
-    showConfirm("批量删除", "确定要删除选中的 " + ids.length + " 条转写记录吗？此操作不可恢复。", async function () {
+    showConfirm(t("confirm.batchDeleteTitle"), t("confirm.batchAsrDelMsg") + ids.length + t("confirm.batchAsrDelMsg2"), async function () {
       try {
         var resp3 = await fetch(BACKEND_URL + "/api/v1/asr/batch/delete", {
           method: "POST",
@@ -2256,12 +2640,18 @@ async function batchASR(action) {
           body: JSON.stringify({ archive_ids: ids }),
         });
         var data3 = await resp3.json();
-        showToast("已删除 " + (data3.data ? data3.data.deleted_count : 0) + " 条记录", "success");
+        showToast(t("toast.asrDeleted") + (data3.data ? data3.data.deleted_count : 0) + t("toast.asrDeleted2"), "success");
         loadASRArchives();
-      } catch (_) { showToast("批量删除失败", "error"); }
+      } catch (_) { showToast(t("toast.asrDeleteFail"), "error"); }
     });
   }
 }
 
+// ---- 语言切换 ----
+document.getElementById("setting-lang-select").addEventListener("change", function () {
+  applyLanguage(this.value);
+});
+
 // ---- 初始化 ----
+applyLanguage(currentLang);
 initTTSPlayer();

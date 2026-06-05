@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src http://127.0.0.1:18888; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'" />
-  <title>QVAC Hackathon 离线 AI 办公助手</title>
+  <title data-i18n="app.title">QVAC Hackathon 离线 AI 办公助手</title>
   <link rel="stylesheet" href="styles/main.css" />
 </head>
 <body>
@@ -12,19 +12,19 @@
     <!-- 侧边栏 — 会话树 + 导航 -->
     <nav id="sidebar">
       <div class="nav-header">
-        <h1>QVAC 办公助手</h1>
-        <span id="status-badge" class="badge badge-idle">就绪</span>
+        <h1 data-i18n="app.brand">QVAC 办公助手</h1>
+        <span id="status-badge" class="badge badge-idle" data-i18n="app.ready">就绪</span>
       </div>
 
       <!-- 会话列表 -->
       <div class="session-section">
         <div class="section-header">
-          <span>会话</span>
-          <button id="new-session-btn" class="btn btn-tiny" title="新建会话">+</button>
+          <span data-i18n="nav.sessions">会话</span>
+          <button id="new-session-btn" class="btn btn-tiny" data-i18n-title="nav.newSession" title="新建会话">+</button>
         </div>
         <ul id="session-list" class="session-list">
           <li class="session-item active" data-session-id="">
-            <span class="session-title">新会话</span>
+            <span class="session-title" data-i18n="nav.newSessionTitle">新会话</span>
           </li>
         </ul>
       </div>
@@ -35,14 +35,14 @@
           <svg class="nav-icon" viewBox="0 0 24 24" width="18" height="18">
             <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" fill="currentColor"/>
           </svg>
-          <span>AI 对话</span>
+          <span data-i18n="nav.aiChat">AI 对话</span>
         </li>
         <li class="nav-item" data-page="knowledge">
           <svg class="nav-icon" viewBox="0 0 24 24" width="18" height="18">
             <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" fill="currentColor"/>
             <polyline points="14 2 14 8 20 8" fill="none" stroke="currentColor" stroke-width="2"/>
           </svg>
-          <span>知识库</span>
+          <span data-i18n="nav.knowledge">知识库</span>
         </li>
         <li class="nav-item" data-page="asr">
           <svg class="nav-icon" viewBox="0 0 24 24" width="18" height="18">
@@ -51,34 +51,34 @@
             <line x1="12" y1="19" x2="12" y2="23" stroke="currentColor" stroke-width="2"/>
             <line x1="8" y1="23" x2="16" y2="23" stroke="currentColor" stroke-width="2"/>
           </svg>
-          <span>语音转写</span>
+          <span data-i18n="nav.asr">语音转写</span>
         </li>
         <li class="nav-item" data-page="translate">
           <svg class="nav-icon" viewBox="0 0 24 24" width="18" height="18">
             <path d="M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10z" fill="none" stroke="currentColor" stroke-width="2"/>
             <path d="M2 12h20M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" fill="none" stroke="currentColor" stroke-width="2"/>
           </svg>
-          <span>翻译</span>
+          <span data-i18n="nav.translate">翻译</span>
         </li>
         <li class="nav-item" data-page="audit">
           <svg class="nav-icon" viewBox="0 0 24 24" width="18" height="18">
             <path d="M12 20h9" fill="none" stroke="currentColor" stroke-width="2"/>
             <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" fill="currentColor"/>
           </svg>
-          <span>审计日志</span>
+          <span data-i18n="nav.audit">审计日志</span>
         </li>
         <li class="nav-item" data-page="settings">
           <svg class="nav-icon" viewBox="0 0 24 24" width="18" height="18">
             <circle cx="12" cy="12" r="3" fill="currentColor"/>
             <path d="M12 1v2m0 18v2M4.22 4.22l1.42 1.42m12.72 12.72 1.42 1.42M1 12h2m18 0h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42" fill="none" stroke="currentColor" stroke-width="2"/>
           </svg>
-          <span>系统设置</span>
+          <span data-i18n="nav.settings">系统设置</span>
         </li>
       </ul>
 
       <div class="nav-footer">
         <span id="connection-dot" class="dot dot-disconnected"></span>
-        <span class="footer-text" id="footer-status">后端未连接</span>
+        <span class="footer-text" id="footer-status" data-i18n="app.disconnected">后端未连接</span>
       </div>
     </nav>
 
@@ -95,18 +95,18 @@
                   <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" fill="currentColor" opacity="0.3"/>
                 </svg>
               </div>
-              <p>开始离线隐私对话</p>
-              <p class="sub-text">所有推理 100% 本地运行，数据零外泄</p>
+              <p data-i18n="chat.emptyTitle">开始离线隐私对话</p>
+              <p class="sub-text" data-i18n="chat.emptySub">所有推理 100% 本地运行，数据零外泄</p>
             </div>
           </div>
           <!-- 文档上下文选择器 -->
           <div class="chat-docs-bar" id="chat-docs-bar">
-            <span class="chat-docs-label">上下文文档:</span>
+            <span class="chat-docs-label" data-i18n="chat.contextDocs">上下文文档:</span>
             <div class="chat-docs-selector">
-              <button id="chat-docs-toggle" class="btn btn-tiny" onclick="toggleDocsDropdown(event)">选择文档</button>
+              <button id="chat-docs-toggle" class="btn btn-tiny" onclick="toggleDocsDropdown(event)" data-i18n="chat.selectDoc">选择文档</button>
               <div id="chat-docs-dropdown" class="chat-docs-dropdown" style="display:none">
                 <div class="chat-docs-dropdown-header">
-                  <span>选择文档</span>
+                  <span data-i18n="chat.selectDoc">选择文档</span>
                   <button class="chat-docs-close-btn" onclick="closeDocsDropdown(event)">x</button>
                 </div>
                 <div id="chat-docs-dropdown-list"></div>
@@ -115,8 +115,8 @@
             <div id="chat-docs-tags" class="chat-docs-tags"></div>
           </div>
           <div class="chat-input-wrapper">
-            <textarea id="chat-input" class="chat-input" placeholder="输入消息..." rows="2" disabled></textarea>
-            <button id="send-btn" class="btn btn-primary" disabled>发送</button>
+            <textarea id="chat-input" class="chat-input" data-i18n-placeholder="chat.placeholder" placeholder="输入消息..." rows="2" disabled></textarea>
+            <button id="send-btn" class="btn btn-primary" disabled data-i18n="chat.send">发送</button>
           </div>
         </div>
       </section>
@@ -124,54 +124,54 @@
       <!-- ============ 知识库页 ============ -->
       <section id="page-knowledge" class="page">
         <div class="page-header">
-          <h2>知识库管理</h2>
+          <h2 data-i18n="kb.title">知识库管理</h2>
           <div class="header-actions">
             <select id="kb-folder-select" class="select-sm" style="max-width:140px">
-              <option value="">📁 根目录</option>
+              <option value="" data-i18n="kb.root">📁 根目录</option>
             </select>
-            <button id="upload-btn" class="btn btn-primary">上传文档</button>
+            <button id="upload-btn" class="btn btn-primary" data-i18n="kb.upload">上传文档</button>
             <input type="file" id="file-input" hidden accept=".pdf,.docx,.txt,.md" />
           </div>
         </div>
         <!-- 批量操作栏 -->
         <div class="batch-bar" id="kb-batch-bar">
-          <label class="batch-check-all"><input type="checkbox" id="kb-check-all" onchange="toggleAllKB(this)" /> 全选</label>
-          <span class="batch-count" id="kb-batch-count">已选 0 项</span>
+          <label class="batch-check-all"><input type="checkbox" id="kb-check-all" onchange="toggleAllKB(this)" /> <span data-i18n="kb.selectAll">全选</span></label>
+          <span class="batch-count" id="kb-batch-count" data-i18n="kb.selected">已选 0 项</span>
           <div class="batch-actions">
             <select id="kb-batch-isolate-mode" class="select-sm" style="width:110px" onchange="batchIsolate(this.value);this.value=''">
-              <option value="">批量隔离...</option>
-              <option value="global">全局</option>
-              <option value="session">会话</option>
-              <option value="temp">临时</option>
+              <option value="" data-i18n="kb.batchIsolate">批量隔离...</option>
+              <option value="global" data-i18n="kb.global">全局</option>
+              <option value="session" data-i18n="kb.session">会话</option>
+              <option value="temp" data-i18n="kb.temp">临时</option>
             </select>
-            <button class="btn btn-small btn-danger" onclick="batchKnowledgeAction('delete')">批量删除</button>
-            <button class="btn btn-small" onclick="batchKnowledgeAction('translate')">批量翻译</button>
+            <button class="btn btn-small btn-danger" onclick="batchKnowledgeAction('delete')" data-i18n="kb.batchDelete">批量删除</button>
+            <button class="btn btn-small" onclick="batchKnowledgeAction('translate')" data-i18n="kb.batchTranslate">批量翻译</button>
             <select id="kb-batch-format" class="select-sm" style="width:80px">
               <option value="txt">TXT</option>
               <option value="md">MD</option>
               <option value="docx">DOCX</option>
             </select>
-            <button class="btn btn-small" onclick="batchKnowledgeAction('export')">批量导出</button>
-            <button class="btn btn-small" onclick="document.getElementById('kb-batch-import-input').click()">批量导入</button>
+            <button class="btn btn-small" onclick="batchKnowledgeAction('export')" data-i18n="kb.batchExport">批量导出</button>
+            <button class="btn btn-small" onclick="document.getElementById('kb-batch-import-input').click()" data-i18n="kb.batchImport">批量导入</button>
             <input type="file" id="kb-batch-import-input" hidden multiple accept=".pdf,.docx,.txt,.md" onchange="batchImportFiles(this)" />
           </div>
         </div>
         <div class="kb-layout">
           <div class="kb-sidebar">
             <div class="kb-folder-header">
-              <span>文件夹</span>
-              <button id="new-folder-btn" class="btn btn-tiny" title="新建文件夹">+</button>
+              <span data-i18n="kb.folders">文件夹</span>
+              <button id="new-folder-btn" class="btn btn-tiny" data-i18n-title="kb.newFolder" title="新建文件夹">+</button>
             </div>
             <div id="folder-tree" class="folder-tree">
               <div class="folder-item active" data-folder-id="" onclick="selectFolder('')">
                 <span class="folder-icon">📁</span>
-                <span class="folder-item-name">全部文档</span>
+                <span class="folder-item-name" data-i18n="kb.allDocs">全部文档</span>
               </div>
             </div>
           </div>
           <div class="kb-main">
             <div id="knowledge-list" class="list-container" style="padding:0">
-              <p class="empty-state">尚未上传任何文档</p>
+              <p class="empty-state" data-i18n="kb.emptyState">尚未上传任何文档</p>
             </div>
           </div>
         </div>
@@ -180,32 +180,32 @@
       <!-- ============ 语音转写页 ============ -->
       <section id="page-asr" class="page">
         <div class="page-header">
-          <h2>语音转写 (ASR)</h2>
-          <span class="hint-text">仅支持标准 WAV 格式</span>
+          <h2 data-i18n="asr.title">语音转写 (ASR)</h2>
+          <span class="hint-text" data-i18n="asr.hint">仅支持标准 WAV 格式</span>
         </div>
         <div class="asr-container">
           <!-- ASR 批量操作栏 -->
           <div class="batch-bar" id="asr-batch-bar">
-            <label class="batch-check-all"><input type="checkbox" id="asr-check-all" onchange="toggleAllASR(this)" /> 全选</label>
-            <span class="batch-count" id="asr-batch-count">已选 0 项</span>
+            <label class="batch-check-all"><input type="checkbox" id="asr-check-all" onchange="toggleAllASR(this)" /> <span data-i18n="kb.selectAll">全选</span></label>
+            <span class="batch-count" id="asr-batch-count" data-i18n="kb.selected">已选 0 项</span>
             <div class="batch-actions">
               <select id="asr-batch-format" class="select-sm" style="width:100px">
                 <option value="txt">TXT</option>
                 <option value="md">Markdown</option>
                 <option value="docx">DOCX</option>
               </select>
-              <button class="btn btn-small" onclick="batchASR('export')">批量导出</button>
-              <button class="btn btn-small btn-primary" onclick="batchASR('import-kb')">批量导入知识库</button>
-              <button class="btn btn-small btn-danger" onclick="batchASR('delete')">批量删除</button>
+              <button class="btn btn-small" onclick="batchASR('export')" data-i18n="kb.batchExport">批量导出</button>
+              <button class="btn btn-small btn-primary" onclick="batchASR('import-kb')" data-i18n="asr.importKbBtn">批量导入知识库</button>
+              <button class="btn btn-small btn-danger" onclick="batchASR('delete')" data-i18n="kb.batchDelete">批量删除</button>
             </div>
           </div>
           <!-- 上传区 -->
           <div class="asr-upload-zone">
             <div class="upload-drop" id="asr-drop-zone">
-              <p>拖入 WAV 音频文件或点击选择</p>
-              <p class="sub-text">支持单声道/立体声 16bit WAV</p>
+              <p data-i18n="asr.dropText">拖入 WAV 音频文件或点击选择</p>
+              <p class="sub-text" data-i18n="asr.dropSub">支持单声道/立体声 16bit WAV</p>
               <input type="file" id="asr-file-input" hidden accept=".wav" />
-              <button id="asr-select-btn" class="btn btn-primary">选择音频文件</button>
+              <button id="asr-select-btn" class="btn btn-primary" data-i18n="asr.selectFile">选择音频文件</button>
             </div>
           </div>
 
@@ -213,7 +213,7 @@
           <div id="asr-task-panel" class="asr-task-panel hidden">
             <div class="asr-task-header">
               <span id="asr-task-id" class="task-id"></span>
-              <span id="asr-task-status" class="badge badge-idle">处理中</span>
+              <span id="asr-task-status" class="badge badge-idle" data-i18n="asr.processing">处理中</span>
             </div>
             <div class="progress-bar-wrapper">
               <div id="asr-progress-bar" class="progress-bar" style="width: 0%"></div>
@@ -227,7 +227,7 @@
           <!-- 转写结果 -->
           <div id="asr-result-panel" class="asr-result-panel hidden">
             <div class="asr-result-header">
-              <span>转写结果</span>
+              <span data-i18n="asr.result">转写结果</span>
               <span id="asr-result-duration"></span>
             </div>
             <div id="asr-result-text" class="asr-result-text"></div>
@@ -237,16 +237,16 @@
                 <option value="md">Markdown</option>
                 <option value="docx">DOCX</option>
               </select>
-              <button id="asr-export-btn" class="btn btn-small" onclick="exportASRResult()">导出</button>
-              <button id="asr-import-kb-btn" class="btn btn-small btn-primary" onclick="showASRImportDialog()">导入知识库</button>
+              <button id="asr-export-btn" class="btn btn-small" onclick="exportASRResult()" data-i18n="asr.exportBtn">导出</button>
+              <button id="asr-import-kb-btn" class="btn btn-small btn-primary" onclick="showASRImportDialog()" data-i18n="asr.importKbBtn">导入知识库</button>
             </div>
           </div>
 
           <!-- 历史记录 -->
           <div class="asr-archive-section">
-            <h3>历史转写记录</h3>
+            <h3 data-i18n="asr.archive">历史转写记录</h3>
             <div id="asr-archive-list" class="list-container">
-              <p class="empty-state">暂无转写记录</p>
+              <p class="empty-state" data-i18n="asr.archiveEmpty">暂无转写记录</p>
             </div>
           </div>
         </div>
@@ -255,52 +255,52 @@
       <!-- ============ 翻译文本视窗 ============ -->
       <section id="page-translate" class="page">
         <div class="page-header">
-          <h2>翻译文本视窗</h2>
+          <h2 data-i18n="tr.title">翻译文本视窗</h2>
           <div class="header-actions">
             <select id="tr-export-format" class="select-sm" style="width:100px">
               <option value="txt">TXT</option>
               <option value="md">Markdown</option>
               <option value="docx">DOCX</option>
             </select>
-            <button id="tr-export-btn" class="btn btn-small" onclick="exportTranslation()">导出</button>
-            <button id="tr-import-kb-btn" class="btn btn-small btn-primary" onclick="importTranslationToKB()">导入知识库</button>
+            <button id="tr-export-btn" class="btn btn-small" onclick="exportTranslation()" data-i18n="tr.exportBtn">导出</button>
+            <button id="tr-import-kb-btn" class="btn btn-small btn-primary" onclick="importTranslationToKB()" data-i18n="tr.importKbBtn">导入知识库</button>
           </div>
         </div>
         <div class="translate-container">
           <div class="translate-sidebar">
-            <h4>翻译记录</h4>
+            <h4 data-i18n="tr.history">翻译记录</h4>
             <div id="tr-history-list" class="tr-history-list">
-              <p class="empty-state">暂无翻译记录</p>
+              <p class="empty-state" data-i18n="tr.historyEmpty">暂无翻译记录</p>
             </div>
           </div>
           <div class="translate-main">
             <div class="translate-panel">
               <div class="translate-panel-header">
-                <span>原文</span>
+                <span data-i18n="tr.source">原文</span>
                 <span id="tr-source-name" class="hint-text"></span>
               </div>
               <div id="tr-source-text" class="translate-text-box">
-                <p class="empty-state">选择文档并点击翻译按钮开始</p>
+                <p class="empty-state" data-i18n="tr.sourceEmpty">选择文档并点击翻译按钮开始</p>
               </div>
             </div>
             <div class="translate-panel">
               <div class="translate-panel-header">
-                <span>译文</span>
+                <span data-i18n="tr.target">译文</span>
                 <div style="display:flex;align-items:center;gap:8px">
-                  <span class="hint-text">目标语言:</span>
+                  <span class="hint-text" data-i18n="tr.targetLang">目标语言:</span>
                   <select id="tr-target-lang-select" class="select-sm" style="width:100px">
-                    <option value="zh">中文</option>
+                    <option value="zh" data-i18n="tr.langZH">中文</option>
                     <option value="en">English</option>
-                    <option value="ja">日本語</option>
-                    <option value="ko">한국어</option>
-                    <option value="fr">Français</option>
-                    <option value="de">Deutsch</option>
-                    <option value="es">Español</option>
+                    <option value="ja" data-i18n="lang.ja">日本語</option>
+                    <option value="ko" data-i18n="lang.ko">한국어</option>
+                    <option value="fr" data-i18n="lang.fr">Français</option>
+                    <option value="de" data-i18n="lang.de">Deutsch</option>
+                    <option value="es" data-i18n="lang.es">Español</option>
                   </select>
                 </div>
               </div>
               <div id="tr-target-text" class="translate-text-box">
-                <p class="empty-state">翻译结果将在此显示</p>
+                <p class="empty-state" data-i18n="tr.targetEmpty">翻译结果将在此显示</p>
               </div>
             </div>
           </div>
@@ -310,21 +310,21 @@
       <!-- ============ 审计日志页 ============ -->
       <section id="page-audit" class="page">
         <div class="page-header">
-          <h2>审计日志</h2>
-          <button id="export-logs-btn" class="btn btn-secondary">一键导出 (JSON+CSV)</button>
+          <h2 data-i18n="audit.title">审计日志</h2>
+          <button id="export-logs-btn" class="btn btn-secondary" data-i18n="audit.exportBtn">一键导出 (JSON+CSV)</button>
         </div>
         <div id="audit-table-wrapper" class="table-wrapper">
           <table id="audit-table" class="audit-table">
             <thead>
               <tr>
-                <th>相对时间</th>
-                <th>绝对时间</th>
-                <th>类型</th>
-                <th>摘要</th>
+                <th data-i18n="audit.relTime">相对时间</th>
+                <th data-i18n="audit.absTime">绝对时间</th>
+                <th data-i18n="audit.type">类型</th>
+                <th data-i18n="audit.summary">摘要</th>
               </tr>
             </thead>
             <tbody id="audit-tbody">
-              <tr><td colspan="4" class="empty-state">点击「导出 JSON」加载审计数据</td></tr>
+              <tr><td colspan="4" class="empty-state" data-i18n="audit.loadHint">点击「导出 JSON」加载审计数据</td></tr>
             </tbody>
           </table>
         </div>
@@ -334,40 +334,54 @@
       <!-- ============ 系统设置页 ============ -->
       <section id="page-settings" class="page">
         <div class="page-header">
-          <h2>系统设置</h2>
+          <h2 data-i18n="settings.title">系统设置</h2>
         </div>
         <div class="settings-container">
           <!-- 系统状态 -->
           <div class="setting-group">
-            <h3>系统状态</h3>
+            <h3 data-i18n="settings.systemStatus">系统状态</h3>
             <div id="system-state" class="state-card">
-              <div class="state-row"><span>主线程状态</span><code id="state-master">--</code></div>
-              <div class="state-row"><span>活跃 Worker</span><code id="state-workers">--</code></div>
-              <div class="state-row"><span>Kill Switch</span><code id="state-ks">--</code></div>
+              <div class="state-row"><span data-i18n="settings.masterState">主线程状态</span><code id="state-master">--</code></div>
+              <div class="state-row"><span data-i18n="settings.activeWorkers">活跃 Worker</span><code id="state-workers">--</code></div>
+              <div class="state-row"><span data-i18n="settings.killSwitch">Kill Switch</span><code id="state-ks">--</code></div>
             </div>
           </div>
 
           <!-- 硬件信息 -->
           <div class="setting-group">
-            <h3>硬件信息</h3>
+            <h3 data-i18n="settings.hardware">硬件信息</h3>
             <div class="state-card">
-              <div class="state-row"><span>GPU 显存</span><code id="hw-gpu">--</code></div>
-              <div class="state-row"><span>CPU 利用率</span><code id="hw-cpu">--</code></div>
-              <div class="state-row"><span>RAM 使用</span><code id="hw-ram">--</code></div>
+              <div class="state-row"><span data-i18n="settings.gpuMem">GPU 显存</span><code id="hw-gpu">--</code></div>
+              <div class="state-row"><span data-i18n="settings.cpuUsage">CPU 利用率</span><code id="hw-cpu">--</code></div>
+              <div class="state-row"><span data-i18n="settings.ramUsage">RAM 使用</span><code id="hw-ram">--</code></div>
             </div>
           </div>
 
           <!-- 数据安全 -->
           <div class="setting-group">
-            <h3>数据安全</h3>
+            <h3 data-i18n="settings.dataSecurity">数据安全</h3>
             <div class="state-card">
-              <div class="state-row"><span>凭据管理器</span><code id="sec-cred">--</code></div>
-              <div class="state-row"><span>加密状态</span><code id="sec-enc">--</code></div>
+              <div class="state-row"><span data-i18n="settings.credManager">凭据管理器</span><code id="sec-cred">--</code></div>
+              <div class="state-row"><span data-i18n="settings.encryption">加密状态</span><code id="sec-enc">--</code></div>
             </div>
             <div class="security-actions">
-              <button id="export-key-btn" class="btn btn-secondary" style="margin-top:8px">导出恢复密钥 (.key)</button>
-              <button id="gen-mnemonic-btn" class="btn btn-secondary" style="margin-top:8px;margin-left:8px">生成助记词</button>
-              <button id="import-key-btn" class="btn btn-secondary" style="margin-top:8px;margin-left:8px">导入恢复密钥</button>
+              <button id="export-key-btn" class="btn btn-secondary" style="margin-top:8px" data-i18n="settings.exportKey">导出恢复密钥 (.key)</button>
+              <button id="gen-mnemonic-btn" class="btn btn-secondary" style="margin-top:8px;margin-left:8px" data-i18n="settings.genMnemonic">生成助记词</button>
+              <button id="import-key-btn" class="btn btn-secondary" style="margin-top:8px;margin-left:8px" data-i18n="settings.importKey">导入恢复密钥</button>
+            </div>
+          </div>
+
+          <!-- 语言 / Language -->
+          <div class="setting-group">
+            <h3 data-i18n="settings.language">语言 / Language</h3>
+            <div class="state-card">
+              <div class="state-row">
+                <span data-i18n="settings.langLabel">界面语言</span>
+                <select id="setting-lang-select" class="select-sm" style="width:140px">
+                  <option value="zh" data-i18n="lang.zh">中文</option>
+                  <option value="en" data-i18n="lang.en">English</option>
+                </select>
+              </div>
             </div>
           </div>
         </div>
@@ -378,7 +392,7 @@
   <!-- ========== Kill Switch 网络锁定覆层 ========== -->
   <div id="overlay" class="overlay hidden">
     <div class="overlay-content">
-      <p id="overlay-text">检测到程序异常网络行为，AI 功能已锁定。</p>
+      <p id="overlay-text" data-i18n="overlay.locked">检测到程序异常网络行为，AI 功能已锁定。</p>
     </div>
   </div>
 
@@ -386,14 +400,14 @@
   <div id="credential-modal" class="modal hidden">
     <div class="modal-mask"></div>
     <div class="modal-dialog">
-      <h3 id="credential-modal-title">密钥灾备恢复</h3>
-      <p id="credential-modal-msg">Windows 凭据管理器主密钥丢失，请导入恢复文件或助记词。</p>
+      <h3 id="credential-modal-title" data-i18n="modal.credTitle">密钥灾备恢复</h3>
+      <p id="credential-modal-msg" data-i18n="modal.credMsg">Windows 凭据管理器主密钥丢失，请导入恢复文件或助记词。</p>
       <div class="modal-body">
-        <textarea id="credential-input" class="credential-input" placeholder="粘贴 .key 文件内容 (64位 hex) 或 12 位中文助记词"></textarea>
+        <textarea id="credential-input" class="credential-input" data-i18n-placeholder="modal.credPlaceholder" placeholder="粘贴 .key 文件内容 (64位 hex) 或 12 位中文助记词"></textarea>
       </div>
       <div class="modal-footer">
-        <button id="credential-submit-btn" class="btn btn-primary">提交恢复</button>
-        <button id="credential-cancel-btn" class="btn btn-secondary">稍后处理</button>
+        <button id="credential-submit-btn" class="btn btn-primary" data-i18n="modal.credSubmit">提交恢复</button>
+        <button id="credential-cancel-btn" class="btn btn-secondary" data-i18n="modal.credLater">稍后处理</button>
       </div>
     </div>
   </div>
@@ -402,23 +416,23 @@
   <div id="setup-modal" class="modal hidden">
     <div class="modal-mask"></div>
     <div class="modal-dialog">
-      <h3>首次启动 — 安全配置</h3>
-      <p>本地加密主密钥已自动生成。请务必导出并安全保存恢复密钥，否则数据将无法恢复。</p>
+      <h3 data-i18n="modal.setupTitle">首次启动 — 安全配置</h3>
+      <p data-i18n="modal.setupMsg">本地加密主密钥已自动生成。请务必导出并安全保存恢复密钥，否则数据将无法恢复。</p>
       <div class="modal-body">
         <div class="setup-key-row">
-          <span>恢复密钥 (64 hex):</span>
-          <code id="setup-key-hex" class="key-display">加载中...</code>
-          <button id="setup-copy-key" class="btn btn-small">复制</button>
+          <span data-i18n="modal.setupKeyLabel">恢复密钥 (64 hex):</span>
+          <code id="setup-key-hex" class="key-display" data-i18n="modal.loading">加载中...</code>
+          <button id="setup-copy-key" class="btn btn-small" data-i18n="modal.copy">复制</button>
         </div>
         <div class="setup-key-row">
-          <span>12 位助记词:</span>
-          <code id="setup-mnemonic" class="key-display">加载中...</code>
-          <button id="setup-copy-mnemonic" class="btn btn-small">复制</button>
+          <span data-i18n="modal.setupMnemonic">12 位助记词:</span>
+          <code id="setup-mnemonic" class="key-display" data-i18n="modal.loading">加载中...</code>
+          <button id="setup-copy-mnemonic" class="btn btn-small" data-i18n="modal.copy">复制</button>
         </div>
       </div>
       <div class="modal-footer">
-        <button id="setup-download-btn" class="btn btn-primary">下载 .key 文件</button>
-        <button id="setup-done-btn" class="btn btn-secondary">我已安全保存</button>
+        <button id="setup-download-btn" class="btn btn-primary" data-i18n="modal.downloadKey">下载 .key 文件</button>
+        <button id="setup-done-btn" class="btn btn-secondary" data-i18n="modal.saved">我已安全保存</button>
       </div>
     </div>
   </div>
@@ -430,11 +444,11 @@
   <div id="confirm-modal" class="modal hidden">
     <div class="modal-mask"></div>
     <div class="modal-dialog modal-sm">
-      <h3 id="confirm-modal-title">确认操作</h3>
+      <h3 id="confirm-modal-title" data-i18n="modal.confirmTitle">确认操作</h3>
       <p id="confirm-modal-msg"></p>
       <div class="modal-footer">
         <button id="confirm-yes-btn" class="btn btn-danger" disabled>确认 (3s)</button>
-        <button id="confirm-no-btn" class="btn btn-secondary">取消</button>
+        <button id="confirm-no-btn" class="btn btn-secondary" data-i18n="modal.cancel">取消</button>
       </div>
     </div>
   </div>
@@ -443,37 +457,37 @@
   <div id="asr-import-modal" class="modal hidden">
     <div class="modal-mask"></div>
     <div class="modal-dialog import-dialog">
-      <h3>导入转写结果到知识库</h3>
+      <h3 data-i18n="modal.importAsrTitle">导入转写结果到知识库</h3>
       <div class="modal-body">
         <div class="import-form-group">
-          <label>文档标题</label>
-          <input type="text" id="asr-import-title" placeholder="留空则使用音频文件名" maxlength="256" />
+          <label data-i18n="modal.docTitle">文档标题</label>
+          <input type="text" id="asr-import-title" data-i18n-placeholder="modal.docTitlePlaceholder" placeholder="留空则使用音频文件名" maxlength="256" />
         </div>
         <div class="import-form-group">
-          <label>导入格式</label>
+          <label data-i18n="modal.importFormat">导入格式</label>
           <select id="asr-import-format">
-            <option value="txt">纯文本 (TXT)</option>
-            <option value="md">Markdown (MD)</option>
+            <option value="txt" data-i18n="modal.formatTxt">纯文本 (TXT)</option>
+            <option value="md" data-i18n="modal.formatMd">Markdown (MD)</option>
           </select>
         </div>
         <div class="import-form-group">
-          <label>隔离模式</label>
+          <label data-i18n="modal.isolateMode">隔离模式</label>
           <select id="asr-import-isolate">
-            <option value="global">全局 (global)</option>
-            <option value="session">会话 (session)</option>
-            <option value="temp">临时 (temp)</option>
+            <option value="global" data-i18n="modal.global">全局 (global)</option>
+            <option value="session" data-i18n="modal.session">会话 (session)</option>
+            <option value="temp" data-i18n="modal.temp">临时 (temp)</option>
           </select>
         </div>
         <div class="import-form-group">
-          <label>目标文件夹</label>
+          <label data-i18n="modal.targetFolder">目标文件夹</label>
           <select id="asr-import-folder">
-            <option value="">根目录</option>
+            <option value="" data-i18n="kb.root">根目录</option>
           </select>
         </div>
       </div>
       <div class="modal-footer">
-        <button id="asr-import-submit-btn" class="btn btn-primary">确认导入</button>
-        <button id="asr-import-cancel-btn" class="btn btn-secondary">取消</button>
+        <button id="asr-import-submit-btn" class="btn btn-primary" data-i18n="modal.confirmImport">确认导入</button>
+        <button id="asr-import-cancel-btn" class="btn btn-secondary" data-i18n="modal.cancel">取消</button>
       </div>
     </div>
   </div>
@@ -482,11 +496,11 @@
   <div id="tts-player-modal" class="modal hidden">
     <div class="modal-mask"></div>
     <div class="modal-dialog tts-player-dialog">
-      <h3 id="tts-player-title">语音播放</h3>
+      <h3 id="tts-player-title" data-i18n="modal.ttsTitle">语音播放</h3>
       <div class="tts-player-body">
         <div class="tts-player-controls">
-          <button id="tts-btn-play" class="tts-ctrl-btn tts-play-btn" title="播放/暂停">▶</button>
-          <button id="tts-btn-stop" class="tts-ctrl-btn tts-stop-btn" title="停止">⏹</button>
+          <button id="tts-btn-play" class="tts-ctrl-btn tts-play-btn" data-i18n-title="modal.ttsPlay" title="播放/暂停">▶</button>
+          <button id="tts-btn-stop" class="tts-ctrl-btn tts-stop-btn" data-i18n-title="modal.ttsStop" title="停止">⏹</button>
         </div>
         <div class="tts-player-progress">
           <div class="tts-progress-bar-wrapper">
@@ -496,18 +510,18 @@
         </div>
         <div class="tts-player-settings">
           <div class="tts-setting-row">
-            <label>语速</label>
+            <label data-i18n="modal.ttsSpeed">语速</label>
             <input type="range" id="tts-speed" min="0.5" max="2.0" step="0.25" value="1.0" />
             <span id="tts-speed-label">1.0x</span>
           </div>
           <div class="tts-setting-row">
-            <label>音色</label>
+            <label data-i18n="modal.ttsVoice">音色</label>
             <select id="tts-voice-select" class="select-sm"></select>
           </div>
         </div>
       </div>
       <div class="modal-footer">
-        <button id="tts-player-close-btn" class="btn btn-secondary">关闭</button>
+        <button id="tts-player-close-btn" class="btn btn-secondary" data-i18n="modal.close">关闭</button>
       </div>
     </div>
   </div>
@@ -516,37 +530,37 @@
   <div id="tr-import-modal" class="modal hidden">
     <div class="modal-mask"></div>
     <div class="modal-dialog import-dialog">
-      <h3>导入翻译结果到知识库</h3>
+      <h3 data-i18n="modal.importTrTitle">导入翻译结果到知识库</h3>
       <div class="modal-body">
         <div class="import-form-group">
-          <label>文档标题</label>
-          <input type="text" id="tr-import-title" placeholder="翻译文档标题" maxlength="256" />
+          <label data-i18n="modal.docTitle">文档标题</label>
+          <input type="text" id="tr-import-title" data-i18n-placeholder="modal.trDocPlaceholder" placeholder="翻译文档标题" maxlength="256" />
         </div>
         <div class="import-form-group">
-          <label>导入格式</label>
+          <label data-i18n="modal.importFormat">导入格式</label>
           <select id="tr-import-format">
-            <option value="txt">纯文本 (TXT)</option>
-            <option value="md">Markdown (MD)</option>
+            <option value="txt" data-i18n="modal.formatTxt">纯文本 (TXT)</option>
+            <option value="md" data-i18n="modal.formatMd">Markdown (MD)</option>
           </select>
         </div>
         <div class="import-form-group">
-          <label>隔离模式</label>
+          <label data-i18n="modal.isolateMode">隔离模式</label>
           <select id="tr-import-isolate">
-            <option value="global">全局 (global)</option>
-            <option value="session">会话 (session)</option>
-            <option value="temp">临时 (temp)</option>
+            <option value="global" data-i18n="modal.global">全局 (global)</option>
+            <option value="session" data-i18n="modal.session">会话 (session)</option>
+            <option value="temp" data-i18n="modal.temp">临时 (temp)</option>
           </select>
         </div>
         <div class="import-form-group">
-          <label>目标文件夹</label>
+          <label data-i18n="modal.targetFolder">目标文件夹</label>
           <select id="tr-import-folder">
-            <option value="">根目录</option>
+            <option value="" data-i18n="kb.root">根目录</option>
           </select>
         </div>
       </div>
       <div class="modal-footer">
-        <button id="tr-import-submit-btn" class="btn btn-primary">确认导入</button>
-        <button id="tr-import-cancel-btn" class="btn btn-secondary">取消</button>
+        <button id="tr-import-submit-btn" class="btn btn-primary" data-i18n="modal.confirmImport">确认导入</button>
+        <button id="tr-import-cancel-btn" class="btn btn-secondary" data-i18n="modal.cancel">取消</button>
       </div>
     </div>
   </div>
@@ -555,8 +569,8 @@
   <div id="tr-progress-modal" class="modal hidden">
     <div class="modal-mask"></div>
     <div class="modal-dialog modal-sm">
-      <h3 id="tr-progress-title">正在翻译...</h3>
-      <p id="tr-progress-hint">请稍候，翻译完成后将自动显示结果</p>
+      <h3 id="tr-progress-title" data-i18n="tr.progressTitle">正在翻译...</h3>
+      <p id="tr-progress-hint" data-i18n="tr.progressHint">请稍候，翻译完成后将自动显示结果</p>
       <div class="progress-bar-wrapper">
         <div id="tr-progress-bar" class="progress-bar progress-bar-indeterminate"></div>
       </div>
