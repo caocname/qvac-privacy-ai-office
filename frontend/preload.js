@@ -3,6 +3,15 @@ const { contextBridge, ipcRenderer } = require("electron");
 contextBridge.exposeInMainWorld("qvacAPI", {
   getBackendURL: () => ipcRenderer.invoke("get-backend-url"),
 
+  // 窗口控制
+  winMinimize: () => ipcRenderer.invoke("win:minimize"),
+  winMaximize: () => ipcRenderer.invoke("win:maximize"),
+  winIsMaximized: () => ipcRenderer.invoke("win:isMaximized"),
+  winClose: () => ipcRenderer.invoke("win:close"),
+  onMaximizeChange: (callback) => {
+    ipcRenderer.on("win:maximizeChange", (_, isMaximized) => callback(isMaximized));
+  },
+
   // 通用 HTTP 请求封装
   request: async (method, path, body) => {
     const base = await ipcRenderer.invoke("get-backend-url");

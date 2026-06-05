@@ -8,6 +8,27 @@
   <link rel="stylesheet" href="styles/main.css" />
 </head>
 <body>
+  <!-- ========== 自定义标题栏 ========== -->
+  <div id="titlebar">
+    <div class="titlebar-drag">
+      <svg class="titlebar-icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/>
+      </svg>
+      <span class="titlebar-app-name">QVAC Assistant</span>
+    </div>
+    <div class="titlebar-controls">
+      <button id="tb-min" class="tb-btn tb-min" title="Minimize">
+        <svg viewBox="0 0 24 24" width="14" height="14"><path d="M5 13h14" fill="none" stroke="currentColor" stroke-width="2"/></svg>
+      </button>
+      <button id="tb-max" class="tb-btn tb-max" title="Maximize">
+        <svg viewBox="0 0 24 24" width="14" height="14"><rect x="4" y="4" width="16" height="16" rx="1" fill="none" stroke="currentColor" stroke-width="2"/></svg>
+      </button>
+      <button id="tb-close" class="tb-btn tb-close" title="Close">
+        <svg viewBox="0 0 24 24" width="14" height="14"><path d="M6 6l12 12M18 6L6 18" fill="none" stroke="currentColor" stroke-width="2"/></svg>
+      </button>
+    </div>
+  </div>
+
   <div id="app">
     <!-- 侧边栏 — 会话树 + 导航 -->
     <nav id="sidebar">
@@ -127,7 +148,7 @@
           <h2 data-i18n="kb.title">知识库管理</h2>
           <div class="header-actions">
             <select id="kb-folder-select" class="select-sm" style="max-width:140px">
-              <option value="" data-i18n="kb.root">📁 根目录</option>
+              <option value="" data-i18n="kb.root">根目录</option>
             </select>
             <button id="upload-btn" class="btn btn-primary" data-i18n="kb.upload">上传文档</button>
             <input type="file" id="file-input" hidden accept=".pdf,.docx,.txt,.md" />
@@ -164,7 +185,7 @@
             </div>
             <div id="folder-tree" class="folder-tree">
               <div class="folder-item active" data-folder-id="" onclick="selectFolder('')">
-                <span class="folder-icon">📁</span>
+                <span class="folder-icon"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></svg></span>
                 <span class="folder-item-name" data-i18n="kb.allDocs">全部文档</span>
               </div>
             </div>
@@ -371,6 +392,20 @@
             </div>
           </div>
 
+          <!-- 外观 / Appearance -->
+          <div class="setting-group">
+            <h3 data-i18n="settings.appearance">外观 / Appearance</h3>
+            <div class="state-card">
+              <div class="theme-toggle-row">
+                <span class="theme-toggle-label" data-i18n="settings.themeLabel">深色模式</span>
+                <label class="theme-switch">
+                  <input type="checkbox" id="setting-theme-toggle" />
+                  <span class="theme-slider"></span>
+                </label>
+              </div>
+            </div>
+          </div>
+
           <!-- 语言 / Language -->
           <div class="setting-group">
             <h3 data-i18n="settings.language">语言 / Language</h3>
@@ -499,8 +534,8 @@
       <h3 id="tts-player-title" data-i18n="modal.ttsTitle">语音播放</h3>
       <div class="tts-player-body">
         <div class="tts-player-controls">
-          <button id="tts-btn-play" class="tts-ctrl-btn tts-play-btn" data-i18n-title="modal.ttsPlay" title="播放/暂停">▶</button>
-          <button id="tts-btn-stop" class="tts-ctrl-btn tts-stop-btn" data-i18n-title="modal.ttsStop" title="停止">⏹</button>
+          <button id="tts-btn-play" class="tts-ctrl-btn tts-play-btn" data-i18n-title="modal.ttsPlay" title="播放/暂停"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="6 3 20 12 6 21 6 3"/></svg></button>
+          <button id="tts-btn-stop" class="tts-ctrl-btn tts-stop-btn" data-i18n-title="modal.ttsStop" title="停止"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/></svg></button>
         </div>
         <div class="tts-player-progress">
           <div class="tts-progress-bar-wrapper">

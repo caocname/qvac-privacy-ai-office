@@ -16,6 +16,16 @@ let selectedDocIds = [];  // 当前选中的知识库文档 ID 列表
 // ---- I18N 国际化 ----
 let currentLang = localStorage.getItem("qvac_lang") || "zh";
 
+// ---- Lucide SVG 图标库 (纯离线, stroke-based) ----
+const ICONS = {
+  folder: '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></svg>',
+  play: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="6 3 20 12 6 21 6 3"/></svg>',
+  pause: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>',
+  stop: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/></svg>',
+  check: '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>',
+  volume2: '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/></svg>',
+};
+
 const I18N = {
   // 导航
   "app.title":             { zh: "QVAC Hackathon 离线 AI 办公助手", en: "QVAC Hackathon Offline AI Office Assistant" },
@@ -166,6 +176,8 @@ const I18N = {
   "settings.importKey":    { zh: "导入恢复密钥", en: "Import Recovery Key" },
   "settings.language":     { zh: "语言 / Language", en: "Language / 语言" },
   "settings.langLabel":    { zh: "界面语言", en: "Interface Language" },
+  "settings.appearance":   { zh: "外观 / Appearance", en: "Appearance / 外观" },
+  "settings.themeLabel":   { zh: "深色模式", en: "Dark Mode" },
   "settings.none":         { zh: "无", en: "None" },
   "settings.locked":       { zh: "已锁定", en: "Locked" },
   "settings.normal":       { zh: "正常", en: "Normal" },
@@ -680,7 +692,7 @@ function loadDocSelectorList() {
         var sel = selectedDocIds.indexOf(doc.file_id) !== -1;
         return '<div class="chat-docs-dropdown-item' + (sel ? " selected" : "") +
           '" onclick="event.stopPropagation();onDocItemClick(\'' + doc.file_id + '\')">' +
-          (sel ? "✓ " : "") + escapeHtml(doc.file_name) +
+          (sel ? ICONS.check : "") + escapeHtml(doc.file_name) +
           '<span style="color:var(--text-secondary);font-size:10px;margin-left:auto">' + (doc.total_pages || 0) + t("chat.chunks") + '</span></div>';
       }).join("");
     })
@@ -1129,10 +1141,10 @@ async function loadFolderTree() {
     var data = await resp.json();
     var folders = data.data || [];
     var html = '<div class="folder-item' + (currentFolderId === "" ? " active" : "") + '" data-folder-id="" onclick="selectFolder(\'\')">' +
-      '<span class="folder-icon">📁</span><span class="folder-item-name">' + t("kb.allDocs") + '</span></div>';
+      '<span class="folder-icon">' + ICONS.folder + '</span><span class="folder-item-name">' + t("kb.allDocs") + '</span></div>';
     folders.forEach(function (f) {
       html += '<div class="folder-item' + (currentFolderId === f.folder_id ? " active" : "") + '" data-folder-id="' + f.folder_id + '" onclick="selectFolder(\'' + f.folder_id + '\')">' +
-        '<span class="folder-icon">📁</span>' +
+        '<span class="folder-icon">' + ICONS.folder + '</span>' +
         '<span class="folder-item-name" title="' + escapeHtml(f.name) + '">' + escapeHtml(f.name) + '</span>' +
         '<span class="folder-item-actions">' +
           '<button title="' + t("kb.rename") + '" onclick="event.stopPropagation();renameFolderPrompt(\'' + f.folder_id + '\',\'' + escapeHtml(f.name) + '\')">✎</button>' +
@@ -1197,7 +1209,7 @@ document.getElementById("new-folder-btn").addEventListener("click", function (e)
   input.maxLength = 64;
   input.style.cssText = "flex:1;background:var(--bg-tertiary);border:1px solid var(--accent);border-radius:3px;color:var(--text-primary);padding:4px 8px;font-size:12px;outline:none";
   var confirmBtn = document.createElement("button");
-  confirmBtn.textContent = "✓";
+  confirmBtn.innerHTML = ICONS.check;
   confirmBtn.className = "btn btn-tiny";
   confirmBtn.style.cssText = "color:var(--success);border-color:var(--success)";
   var cancelBtn = document.createElement("button");
@@ -1390,7 +1402,7 @@ function renderFileActions(f) {
     '<select class="export-select" onchange="moveFileToFolder(\'' + f.file_id + '\',this.value)">' +
       folderOpts +
     '</select>' +
-    '<button class="btn btn-tiny" onclick="playTTS(\'' + f.file_id + '\')" title="' + t("kb.ttsDocTitle") + '">🔊 TTS</button>' +
+    '<button class="btn btn-tiny" onclick="playTTS(\'' + f.file_id + '\')" title="' + t("kb.ttsDocTitle") + '">' + ICONS.volume2 + ' TTS</button>' +
     '<button class="btn btn-tiny btn-primary" onclick="translateDocument(\'' + f.file_id + '\',\'' + escapeHtml(f.file_name).replace(/'/g, "\\'") + '\')" title="' + t("kb.translateTitle") + '">' + t("kb.translateBtn") + '</button>' +
     '<button class="btn btn-tiny btn-danger" onclick="deleteKnowledge(\'' + f.file_id + '\')">' + t("kb.delete") + '</button>';
 }
@@ -2232,13 +2244,13 @@ function initTTSPlayer() {
     if (ttsPlayerState.playing && !ttsPlayerState.paused) {
       window.speechSynthesis.pause();
       ttsPlayerState.paused = true;
-      document.getElementById("tts-btn-play").textContent = "▶";
+      document.getElementById("tts-btn-play").innerHTML = ICONS.play;
       document.getElementById("tts-btn-play").classList.remove("tts-play-btn");
       document.getElementById("tts-btn-play").style.background = "var(--bg-tertiary)";
     } else if (ttsPlayerState.paused) {
       window.speechSynthesis.resume();
       ttsPlayerState.paused = false;
-      document.getElementById("tts-btn-play").textContent = "⏸";
+      document.getElementById("tts-btn-play").innerHTML = ICONS.pause;
       document.getElementById("tts-btn-play").classList.add("tts-play-btn");
       document.getElementById("tts-btn-play").style.background = "";
     } else {
@@ -2276,7 +2288,7 @@ function stopTTS() {
   ttsPlayerState.playing = false;
   ttsPlayerState.paused = false;
   ttsPlayerState.currentCharIndex = 0;
-  document.getElementById("tts-btn-play").textContent = "▶";
+  document.getElementById("tts-btn-play").innerHTML = ICONS.play;
   document.getElementById("tts-btn-play").classList.remove("tts-play-btn");
   document.getElementById("tts-btn-play").style.background = "";
   document.getElementById("tts-progress-bar").style.width = "0%";
@@ -2303,7 +2315,7 @@ function startTTSPlayback() {
     ttsPlayerState.playing = false;
     ttsPlayerState.paused = false;
     ttsPlayerState.currentCharIndex = 0;
-    document.getElementById("tts-btn-play").textContent = "▶";
+    document.getElementById("tts-btn-play").innerHTML = ICONS.play;
     document.getElementById("tts-btn-play").classList.remove("tts-play-btn");
     document.getElementById("tts-btn-play").style.background = "";
     document.getElementById("tts-progress-bar").style.width = "100%";
@@ -2333,7 +2345,7 @@ function startTTSPlayback() {
 
   ttsPlayerState.playing = true;
   ttsPlayerState.paused = false;
-  document.getElementById("tts-btn-play").textContent = "⏸";
+  document.getElementById("tts-btn-play").innerHTML = ICONS.pause;
   document.getElementById("tts-btn-play").classList.add("tts-play-btn");
   document.getElementById("tts-btn-play").style.background = "";
 
@@ -2652,6 +2664,50 @@ document.getElementById("setting-lang-select").addEventListener("change", functi
   applyLanguage(this.value);
 });
 
+// ---- 主题切换 ----
+function initTheme() {
+  var saved = localStorage.getItem("qvac_theme") || "light";
+  applyTheme(saved);
+}
+function applyTheme(theme) {
+  if (theme === "dark") {
+    document.documentElement.setAttribute("data-theme", "dark");
+  } else {
+    document.documentElement.removeAttribute("data-theme");
+  }
+  localStorage.setItem("qvac_theme", theme);
+  var toggle = document.getElementById("setting-theme-toggle");
+  if (toggle) toggle.checked = theme === "dark";
+}
+document.getElementById("setting-theme-toggle").addEventListener("change", function () {
+  applyTheme(this.checked ? "dark" : "light");
+});
+
+// ---- 标题栏窗口控制 ----
+(function initTitlebar() {
+  var tbMin = document.getElementById("tb-min");
+  var tbMax = document.getElementById("tb-max");
+  var tbClose = document.getElementById("tb-close");
+
+  if (tbMin) tbMin.addEventListener("click", function () { window.qvacAPI.winMinimize(); });
+  if (tbClose) tbClose.addEventListener("click", function () { window.qvacAPI.winClose(); });
+
+  if (tbMax) {
+    tbMax.addEventListener("click", function () { window.qvacAPI.winMaximize(); });
+    window.qvacAPI.onMaximizeChange(function (isMaximized) {
+      var maxSvg = tbMax.querySelector("svg");
+      if (isMaximized) {
+        maxSvg.innerHTML = '<rect x="5" y="2" width="12" height="12" rx="1" fill="none" stroke="currentColor" stroke-width="2"/><rect x="7" y="4" width="12" height="12" rx="1" fill="var(--bg-secondary)" stroke="currentColor" stroke-width="2"/>';
+        tbMax.setAttribute("title", "Restore");
+      } else {
+        maxSvg.innerHTML = '<rect x="4" y="4" width="16" height="16" rx="1" fill="none" stroke="currentColor" stroke-width="2"/>';
+        tbMax.setAttribute("title", "Maximize");
+      }
+    });
+  }
+})();
+
 // ---- 初始化 ----
 applyLanguage(currentLang);
+initTheme();
 initTTSPlayer();
