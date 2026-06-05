@@ -428,7 +428,7 @@ const server = http.createServer(async (req, res) => {
         modelId: llmModelId,
         history: messages,
         stream: true,
-        generationParams: { predict: 4096, temp: 0.3 },
+        generationParams: { predict: 2048, temp: 0.1, repeat_penalty: 1.15 },
       });
 
       for await (const ev of run.events) {

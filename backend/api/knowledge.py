@@ -935,8 +935,8 @@ async def translate_document(req: TranslateRequest):
     full_text = "\n\n".join(c[0] for c in chunks)
     file_name = row[0]
 
-    # 按 ~2000 字符分段翻译（避免超出 LLM 上下文）
-    part_size = 2000
+    # 按 ~1000 字符分段翻译（避免 1B 小模型上下文溢出导致输出崩溃）
+    part_size = 1000
     parts = [full_text[i:i + part_size] for i in range(0, len(full_text), part_size)]
 
     translated_parts = []

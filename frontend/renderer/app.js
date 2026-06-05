@@ -2020,6 +2020,7 @@ async function translateDocument(fileId, fileName, silent) {
   var targetLang = document.getElementById("tr-target-lang-select").value || "zh";
   var langLabels = { zh: "中文", en: "English", ja: "日本語", ko: "한국어", fr: "Français", de: "Deutsch", es: "Español" };
   if (!silent) showToast("正在翻译为 " + (langLabels[targetLang] || targetLang) + "...", "success");
+  showTranslateProgress(targetLang);
   try {
     var resp = await fetch(BACKEND_URL + "/api/v1/knowledge/translate", {
       method: "POST",
@@ -2046,6 +2047,22 @@ async function translateDocument(fileId, fileName, silent) {
       showToast(data.message || "翻译失败", "error");
     }
   } catch (_) { showToast("翻译服务不可用", "error"); }
+  hideTranslateProgress();
+}
+
+function showTranslateProgress(targetLang) {
+  var langLabels = { zh: "中文", en: "English", ja: "日本語", ko: "한국어", fr: "Français", de: "Deutsch", es: "Español" };
+  var modal = document.getElementById("tr-progress-modal");
+  var title = document.getElementById("tr-progress-title");
+  var hint = document.getElementById("tr-progress-hint");
+  if (title) title.textContent = "正在翻译为 " + (langLabels[targetLang] || targetLang) + "...";
+  if (hint) hint.textContent = "请稍候，翻译完成后将自动显示结果";
+  if (modal) modal.classList.remove("hidden");
+}
+
+function hideTranslateProgress() {
+  var modal = document.getElementById("tr-progress-modal");
+  if (modal) modal.classList.add("hidden");
 }
 
 // 目标语言切换时自动重新翻译

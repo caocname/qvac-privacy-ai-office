@@ -315,6 +315,15 @@ body {
   height: 100%; background: var(--accent); border-radius: 3px;
   transition: width 300ms linear;
 }
+.progress-bar-indeterminate {
+  width: 30% !important;
+  animation: progressIndeterminate 1.4s ease-in-out infinite;
+}
+@keyframes progressIndeterminate {
+  0%   { transform: translateX(-100%); }
+  50%  { transform: translateX(240%); }
+  100% { transform: translateX(-100%); }
+}
 .asr-task-info {
   display: flex; justify-content: space-between; font-size: 12px; color: var(--text-secondary);
 }
