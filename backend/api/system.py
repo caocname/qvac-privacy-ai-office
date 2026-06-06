@@ -169,3 +169,44 @@ async def generate_mnemonic_phrase():
 async def get_state():
     """获取当前系统状态快照。"""
     return get_state_manager().snapshot()
+
+
+@router.get("/hardware")
+async def get_hardware():
+    """获取实时硬件资源信息 — 直接采样 psutil / pynvml，不依赖审计日志。"""
+    metrics: dict = {}
+
+    # GPU 显存
+    try:
+        import pynvml
+        pynvml.nvmlInit()
+        handle = pynvml.nvmlDeviceGetHandleByIndex(0)
+        info = pynvml.nvmlDeviceGetMemoryInfo(handle)
+        metrics["gpu_memory_used_mb"] = round(info.used / (1024 * 1024), 1)
+        metrics["gpu_memory_total_mb"] = round(info.total / (1024 * 1024), 1)
+    except Exception:
+        metrics["gpu_memory_used_mb"] = 0
+        metrics["gpu_memory_total_mb"] = 0
+
+    # CPU 利用率
+    try:
+        import psutil
+        metrics["cpu_utilization_percent"] = round(psutil.cpu_percent(interval=0.1), 1)
+    except Exception:
+        metrics["cpu_utilization_percent"] = 0
+
+    # RAM
+    try:
+        import psutil
+        mem = psutil.virtual_memory()
+        metrics["ram_used_mb"] = round(mem.used / (1024 * 1024), 1)
+        metrics["ram_total_mb"] = round(mem.total / (1024 * 1024), 1)
+    except Exception:
+        metrics["ram_used_mb"] = 0
+        metrics["ram_total_mb"] = 0
+
+    return {
+        "code": StateCode.IDLE.value,
+        "status": StateCode.IDLE.name,
+        "data": metrics,
+    }

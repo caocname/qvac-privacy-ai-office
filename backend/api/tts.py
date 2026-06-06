@@ -35,25 +35,6 @@ tts_buffer: list[bytes] = []
 _tts_abort_flag = False
 
 
-async def _generate_tts_sdk(text: str, voice: str, speed: float):
-    """通过 QVAC SDK 直接生成 TTS 音频 (Bridge 不可用时的降级方案)。"""
-    import asyncio
-    try:
-        from qvac_sdk import TTSEngine
-        tts = TTSEngine(voice=voice, speed=speed)
-        audio_bytes = tts.synthesize(text)
-        chunk_size = 4096
-        for i in range(0, len(audio_bytes), chunk_size):
-            if _tts_abort_flag:
-                break
-            yield audio_bytes[i:i + chunk_size]
-            await asyncio.sleep(0)
-    except ImportError:
-        pass
-    except Exception:
-        pass
-
-
 @router.post("/stream")
 async def stream(req: TTSStreamRequest):
     """TTS 流式朗读接口 — 技术需求文档 4.3。
@@ -76,58 +57,30 @@ async def stream(req: TTSStreamRequest):
     }, f"TTS streaming: {req.text[:80]}...")
 
     async def generate_audio():
-        bridge_streamed = False
+        bridge_ok = False
         try:
-            # 方案 1: 通过 Bridge 调用 QVAC SDK TTS
             import httpx
-            async with httpx.AsyncClient(timeout=10.0) as client:
+            async with httpx.AsyncClient(timeout=30.0) as client:
                 try:
                     resp = await client.post(
-                        "http://127.0.0.1:18889/api/tts/stream",
-                        json={"text": req.text, "voice": req.voice_model, "speed": req.speed},
+                        "http://127.0.0.1:18889/api/tts/speak",
+                        json={"text": req.text, "language": "zh", "voice": req.voice_model, "speed": req.speed},
                     )
                     if resp.status_code == 200:
-                        async for chunk in resp.aiter_bytes():
-                            if _tts_abort_flag:
-                                break
-                            bridge_streamed = True
-                            yield chunk
-                            await asyncio.sleep(0)
+                        audio_data = await resp.aread()
+                        if audio_data and not _tts_abort_flag:
+                            bridge_ok = True
+                            chunk_size = 8192
+                            for i in range(0, len(audio_data), chunk_size):
+                                if _tts_abort_flag:
+                                    break
+                                yield audio_data[i:i + chunk_size]
+                                await asyncio.sleep(0)
                 except Exception:
                     pass
 
-            # 方案 2: Bridge 不可用 — 尝试 QVAC SDK 直接调用
-            if not bridge_streamed and not _tts_abort_flag:
-                try:
-                    from backend.api.tts import _generate_tts_sdk
-                    async for chunk in _generate_tts_sdk(req.text, req.voice_model, req.speed):
-                        if _tts_abort_flag:
-                            break
-                        bridge_streamed = True
-                        yield chunk
-                except Exception:
-                    pass
-
-            # 方案 3: 降级 — 返回 WAV 格式静音占位符
-            if not bridge_streamed and not _tts_abort_flag:
-                # 生成 16kHz 16bit mono WAV 封装的静音 (1秒)
-                import struct
-                sample_rate = 16000
-                num_channels = 1
-                bits_per_sample = 16
-                num_samples = sample_rate  # 1 second
-                data_size = num_samples * num_channels * (bits_per_sample // 8)
-                wav_header = struct.pack(
-                    "<4sI4s4sIHHIIHH4sI",
-                    b"RIFF", 36 + data_size,
-                    b"WAVE",
-                    b"fmt ", 16, 1, num_channels, sample_rate,
-                    sample_rate * num_channels * (bits_per_sample // 8),
-                    num_channels * (bits_per_sample // 8),
-                    bits_per_sample,
-                    b"data", data_size,
-                )
-                yield wav_header + (b"\x00" * data_size)
+            if not bridge_ok and not _tts_abort_flag:
+                get_audit_logger().log(LogType.ERROR, {}, "Bridge TTS call failed — no audio generated")
 
         except Exception as exc:
             get_audit_logger().log(LogType.ERROR, {

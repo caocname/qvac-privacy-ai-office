@@ -91,27 +91,41 @@ async def lifespan(app: FastAPI):
         else:
             logger.log(LogType.ERROR, {
                 "event": "bridge_ping_timeout",
-                "message": "Bridge 服务 30s 内未就绪，后台加载已取消。请先启动 Bridge: cd bridge && node index.js",
+                "message": "Bridge 服务 30s 内未就绪，后台加载已取消。",
             })
             return
 
-        # 加载 LLM
-        if await llm_svc.load_model():
-            logger.log(LogType.SYSTEM, {"event": "llm_model_loaded"})
-        else:
-            logger.log(LogType.ERROR, {
-                "event": "llm_model_load_failed",
-                "message": "LLM 模型加载失败",
-            })
+        # 先做一次健康检查，避免重复卸载已加载的模型
+        await llm_svc.health()
+        logger.log(LogType.SYSTEM, {
+            "event": "model_health_check",
+            "llm_loaded": llm_svc.is_llm_loaded,
+            "embed_loaded": llm_svc.is_embed_loaded,
+        })
 
-        # 加载 Embedding
-        if await llm_svc.load_embed_model():
-            logger.log(LogType.SYSTEM, {"event": "embed_model_loaded"})
+        # 仅在未加载时加载 LLM
+        if not llm_svc.is_llm_loaded:
+            if await llm_svc.load_model():
+                logger.log(LogType.SYSTEM, {"event": "llm_model_loaded"})
+            else:
+                logger.log(LogType.ERROR, {
+                    "event": "llm_model_load_failed",
+                    "message": "LLM 模型加载失败",
+                })
         else:
-            logger.log(LogType.ERROR, {
-                "event": "embed_model_load_failed",
-                "message": "Embedding 模型加载失败",
-            })
+            logger.log(LogType.SYSTEM, {"event": "llm_already_loaded"})
+
+        # 仅在未加载时加载 Embedding
+        if not llm_svc.is_embed_loaded:
+            if await llm_svc.load_embed_model():
+                logger.log(LogType.SYSTEM, {"event": "embed_model_loaded"})
+            else:
+                logger.log(LogType.ERROR, {
+                    "event": "embed_model_load_failed",
+                    "message": "Embedding 模型加载失败",
+                })
+        else:
+            logger.log(LogType.SYSTEM, {"event": "embed_already_loaded"})
 
     asyncio.create_task(background_load_models())
 
@@ -201,9 +215,13 @@ async def health():
 if __name__ == "__main__":
     import uvicorn
 
-    uvicorn.run(
-        "backend.main:app",
-        host="127.0.0.1",
-        port=18888,
-        log_level="info",
-    )
+    # PyInstaller 打包模式下使用直接引用
+    if getattr(sys, "frozen", False):
+        uvicorn.run(app, host="127.0.0.1", port=18888, log_level="info")
+    else:
+        uvicorn.run(
+            "backend.main:app",
+            host="127.0.0.1",
+            port=18888,
+            log_level="info",
+        )

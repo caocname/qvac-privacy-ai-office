@@ -527,40 +527,6 @@
     </div>
   </div>
 
-  <!-- ========== TTS 播放器弹窗 ========== -->
-  <div id="tts-player-modal" class="modal hidden">
-    <div class="modal-mask"></div>
-    <div class="modal-dialog tts-player-dialog">
-      <h3 id="tts-player-title" data-i18n="modal.ttsTitle">语音播放</h3>
-      <div class="tts-player-body">
-        <div class="tts-player-controls">
-          <button id="tts-btn-play" class="tts-ctrl-btn tts-play-btn" data-i18n-title="modal.ttsPlay" title="播放/暂停"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="6 3 20 12 6 21 6 3"/></svg></button>
-          <button id="tts-btn-stop" class="tts-ctrl-btn tts-stop-btn" data-i18n-title="modal.ttsStop" title="停止"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/></svg></button>
-        </div>
-        <div class="tts-player-progress">
-          <div class="tts-progress-bar-wrapper">
-            <div id="tts-progress-bar" class="tts-progress-fill" style="width:0%"></div>
-          </div>
-          <span id="tts-time-label" class="hint-text">00:00 / 00:00</span>
-        </div>
-        <div class="tts-player-settings">
-          <div class="tts-setting-row">
-            <label data-i18n="modal.ttsSpeed">语速</label>
-            <input type="range" id="tts-speed" min="0.5" max="2.0" step="0.25" value="1.0" />
-            <span id="tts-speed-label">1.0x</span>
-          </div>
-          <div class="tts-setting-row">
-            <label data-i18n="modal.ttsVoice">音色</label>
-            <select id="tts-voice-select" class="select-sm"></select>
-          </div>
-        </div>
-      </div>
-      <div class="modal-footer">
-        <button id="tts-player-close-btn" class="btn btn-secondary" data-i18n="modal.close">关闭</button>
-      </div>
-    </div>
-  </div>
-
   <!-- ========== 翻译导入知识库弹窗 ========== -->
   <div id="tr-import-modal" class="modal hidden">
     <div class="modal-mask"></div>

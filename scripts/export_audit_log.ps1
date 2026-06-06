@@ -1,4 +1,4 @@
-# QVAC Hackathon — 审计日志一键导出（JSON + CSV 压缩包）
+﻿# QVAC Hackathon — 审计日志一键导出（JSON + CSV 压缩包）
 # 用法: .\scripts\export_audit_log.ps1
 
 $BackendUrl = "http://127.0.0.1:18888"

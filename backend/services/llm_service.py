@@ -4,6 +4,7 @@ LLM 推理服务 — 通过 Bridge HTTP API 调用 QVAC SDK。
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import uuid
 from typing import Any, AsyncGenerator
@@ -125,6 +126,24 @@ class LLMService:
             InferenceMetric.PROMPT_TOKENS: sum(len(m.get("content", "")) // 4 for m in messages),
             InferenceMetric.MODEL_ID: "qvac-llamacpp",
         })
+
+        # 主动检查 Bridge LLM 状态，带重试（模型可能正在后台加载中）
+        llm_ready = False
+        for attempt in range(10):
+            await self.health()
+            if self.is_llm_loaded:
+                llm_ready = True
+                break
+            if attempt < 9:
+                await asyncio.sleep(2.0)
+        if not llm_ready:
+            # 最后尝试触发一次加载
+            logger.log(LogType.SYSTEM, {"event": "llm_not_ready_attempting_load"})
+            await self.load_model()
+            await self.health()
+            if not self.is_llm_loaded:
+                yield {"done": True, "error": "LLM 模型尚未加载完成，请等待后台加载完毕后重试（通常需要 30-60 秒）。"}
+                return
 
         # 合并系统提示词与 RAG 上下文为单条 system 消息，避免 1B 小模型在多 system 消息下产生重复
         system_content = SYSTEM_PROMPT

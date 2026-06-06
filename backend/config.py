@@ -1,19 +1,41 @@
 from __future__ import annotations
 
+import os
+import sys
 from pathlib import Path
 
-# ---- 项目根目录 ----
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
+# ---- 运行模式检测 ----
+IS_FROZEN = getattr(sys, "frozen", False)
 
-# ---- 数据目录 ----
-DATA_DIR = PROJECT_ROOT / "data"
+if IS_FROZEN:
+    # PyInstaller 打包模式：exe 所在目录为应用根
+    APP_ROOT = Path(sys.executable).parent
+else:
+    # 开发模式：项目根目录
+    APP_ROOT = Path(__file__).resolve().parent.parent
+
+# ---- 数据目录 (生产模式使用 %APPDATA% 确保可写) ----
+if IS_FROZEN:
+    DATA_DIR = Path(os.environ.get("QVAC_DATA_DIR", os.path.join(os.environ.get("APPDATA", ""), "qvac-assistant", "data")))
+else:
+    DATA_DIR = APP_ROOT / "data"
+
+DATA_DIR.mkdir(parents=True, exist_ok=True)
+
 DATABASE_PATH = DATA_DIR / "qvac.db"
 FAISS_INDEX_DIR = DATA_DIR / "faiss_indices"
 UPLOAD_DIR = DATA_DIR / "uploads"
 AUDIT_LOG_PATH = DATA_DIR / "audit_logs.db"
 
+# ---- 模型目录 ----
+if IS_FROZEN:
+    # 生产模式：优先使用 QVAC_MODELS_DIR 环境变量，其次与 exe 同级的 models 目录，最后 fallback 到 data
+    MODELS_DIR = Path(os.environ.get("QVAC_MODELS_DIR", APP_ROOT / "models" if (APP_ROOT / "models").exists() else DATA_DIR / "models"))
+else:
+    MODELS_DIR = DATA_DIR / "models"
+
 # ---- QVAC SDK ----
-QVAC_SDK_DIR = PROJECT_ROOT / "qvac-sdk" / "packages" / "sdk"
+QVAC_SDK_DIR = APP_ROOT / "qvac-sdk" / "packages" / "sdk"
 
 # ---- 系统提示词 v3.1 精简版（适配 1B 小模型） ----
 SYSTEM_PROMPT = """你是文档办公助手，运行在离线环境中。

@@ -300,7 +300,7 @@ body {
 .nav-item.active .nav-icon { opacity: 1; }
 
 /* ---- SVG 图标统一风格 ---- */
-svg.lucide, .folder-icon svg, .tts-ctrl-btn svg, .chat-docs-dropdown-item svg {
+svg.lucide, .folder-icon svg, .chat-docs-dropdown-item svg {
   vertical-align: middle; flex-shrink: 0;
 }
 .folder-icon {
@@ -717,11 +717,9 @@ svg.lucide, .folder-icon svg, .tts-ctrl-btn svg, .chat-docs-dropdown-item svg {
 .modal-mask {
   position: absolute; top: 0; left: 0; width: 100%; height: 100%;
   background: var(--overlay-bg);
-  backdrop-filter: blur(4px);
-  -webkit-backdrop-filter: blur(4px);
 }
 .modal-dialog {
-  position: relative; background: var(--bg-secondary);
+  position: relative; z-index: 1; background: var(--bg-secondary);
   border: var(--border-width) solid var(--border);
   border-radius: var(--radius-lg); padding: 28px; max-width: 520px; width: 90%;
   box-shadow: var(--shadow-lg);
@@ -1011,49 +1009,6 @@ svg.lucide, .folder-icon svg, .tts-ctrl-btn svg, .chat-docs-dropdown-item svg {
   flex: 1; padding: 14px; overflow-y: auto;
   font-size: 13px; line-height: 1.7; color: var(--text-primary);
   white-space: pre-wrap; word-break: break-word;
-}
-
-/* =================================================================
-   TTS 播放器
-   ================================================================= */
-.tts-player-dialog { max-width: 420px; }
-.tts-player-body { margin-bottom: 18px; display: flex; flex-direction: column; gap: 18px; }
-.tts-player-controls {
-  display: flex; justify-content: center; align-items: center; gap: 18px;
-}
-.tts-ctrl-btn {
-  background: var(--bg-tertiary); border: var(--border-width) solid var(--border);
-  border-radius: 50%; width: 46px; height: 46px;
-  color: var(--text-primary); font-size: 18px; cursor: pointer;
-  display: flex; align-items: center; justify-content: center;
-  box-shadow: var(--shadow-xs);
-  transition: background var(--transition-linear), border-color var(--transition-linear),
-              box-shadow var(--transition-linear);
-}
-.tts-ctrl-btn:hover { border-color: var(--accent); box-shadow: var(--shadow-sm); }
-.tts-play-btn {
-  width: 58px; height: 58px; font-size: 22px;
-  background: var(--accent); border-color: var(--accent); color: #fff;
-}
-.tts-play-btn:hover { background: var(--accent-light); opacity: 1; }
-.tts-stop-btn:hover { border-color: var(--error); color: var(--error); background: var(--error-bg); }
-.tts-player-progress { display: flex; align-items: center; gap: 10px; }
-.tts-progress-bar-wrapper {
-  flex: 1; height: 6px; background: var(--bg-tertiary);
-  border-radius: 3px; overflow: hidden;
-}
-.tts-progress-fill {
-  height: 100%; background: var(--accent); border-radius: 3px;
-  transition: width 200ms linear;
-}
-.tts-player-settings { display: flex; flex-direction: column; gap: 12px; }
-.tts-setting-row { display: flex; align-items: center; gap: 10px; font-size: 13px; }
-.tts-setting-row label { color: var(--text-secondary); min-width: 36px; }
-.tts-setting-row input[type="range"] { flex: 1; accent-color: var(--accent); height: 4px; }
-.tts-setting-row select { flex: 1; }
-#tts-speed-label {
-  color: var(--accent); font-weight: 600; min-width: 40px;
-  text-align: right; font-size: 12px;
 }
 
 /* =================================================================

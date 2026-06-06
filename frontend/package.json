@@ -1,16 +1,44 @@
 {
-  "name": "qvac-text",
-  "version": "0.2.0",
+  "name": "qvac-assistant",
+  "version": "1.0.0",
   "description": "QVAC Hackathon 离线 AI 办公助手",
   "main": "main.js",
   "scripts": {
     "start": "electron .",
-    "dev": "electron . --dev"
+    "dev": "electron . --dev",
+    "build": "electron-builder",
+    "build:dir": "electron-builder --dir"
   },
   "dependencies": {
-    "electron": "^33.0.0"
+    "@qvac/sdk": "^0.10.2"
   },
-  "devDependencies": {},
+  "devDependencies": {
+    "electron": "^33.0.0",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "com.qvac.assistant",
+    "productName": "QVAC Assistant",
+    "electronDist": "node_modules/electron/dist",
+    "directories": {
+      "output": "../dist",
+      "buildResources": "build"
+    },
+    "asar": false,
+    "files": [
+      "**/*",
+      "!node_modules/@qvac/**/*"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "dir",
+          "arch": ["x64"]
+        }
+      ],
+      "icon": "build/icon.ico"
+    }
+  },
   "author": "QVAC Hackathon Team",
   "license": "Apache-2.0"
 }

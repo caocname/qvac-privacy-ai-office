@@ -991,8 +991,6 @@ async function sendMessage() {
               contentEl.appendChild(tag);
             }
             contentEl.classList.remove("streaming");
-            // 添加 TTS 播放按钮
-            addTTSButton(assistantBubble, fullText);
           } else if (chunk.token) {
             fullText += chunk.token;
             contentEl.textContent = fullText;
@@ -1005,7 +1003,6 @@ async function sendMessage() {
     contentEl.classList.remove("streaming");
     if (contentEl.textContent === "..." || !contentEl.textContent) {
       contentEl.textContent = fullText || t("chat.emptyResponse");
-      addTTSButton(assistantBubble, fullText);
     }
   } catch (err) {
     assistantBubble.querySelector(".message-content").textContent = "[" + t("misc.connectionError") + "] " + err.message;
@@ -1020,80 +1017,6 @@ async function sendMessage() {
 }
 
 // ---- TTS 控制 ----
-function addTTSButton(bubble, text) {
-  if (!text || text.length < 10) return;
-
-  var existing = bubble.querySelector(".message-actions");
-  if (existing) existing.remove();
-
-  var actions = document.createElement("div");
-  actions.className = "message-actions";
-
-  var playBtn = document.createElement("button");
-  playBtn.className = "btn btn-tiny";
-  playBtn.textContent = t("chat.ttsPlay");
-  playBtn.addEventListener("click", function () { playTTS(text, playBtn); });
-  actions.appendChild(playBtn);
-
-  bubble.querySelector(".message-body").appendChild(actions);
-}
-
-async function playTTS(text, btn) {
-  if (btn.dataset.playing === "true") {
-    // 停止
-    await fetch(BACKEND_URL + "/api/v1/tts/abort", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ api_version: "v1", action: "destroy_handler" }),
-    });
-    btn.textContent = t("chat.ttsPlay");
-    btn.dataset.playing = "false";
-    if (audioCtx) { audioCtx.close(); audioCtx = null; }
-    return;
-  }
-
-  btn.textContent = t("chat.ttsStop");
-  btn.dataset.playing = "true";
-
-  try {
-    var resp = await fetch(BACKEND_URL + "/api/v1/tts/stream", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ api_version: "v1", text: text, voice_model: "male_professional", speed: 1.0 }),
-    });
-
-    var reader = resp.body.getReader();
-    var chunks = [];
-
-    while (true) {
-      var _a = await reader.read(), done = _a.done, value = _a.value;
-      if (done) break;
-      chunks.push(value);
-    }
-
-    // 播放音频
-    if (chunks.length > 0) {
-      var blob = new Blob(chunks, { type: "audio/wav" });
-      var url = URL.createObjectURL(blob);
-      audioCtx = new AudioContext();
-      var arrayBuffer = await (await fetch(url)).arrayBuffer();
-      var audioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
-      var source = audioCtx.createBufferSource();
-      source.buffer = audioBuffer;
-      source.connect(audioCtx.destination);
-      source.onended = function () {
-        btn.textContent = t("chat.ttsPlay");
-        btn.dataset.playing = "false";
-      };
-      source.start();
-    }
-  } catch (err) {
-    showToast(t("toast.ttsFail") + err.message, "error");
-    btn.textContent = t("chat.ttsPlay");
-    btn.dataset.playing = "false";
-  }
-}
-
 // ---- 消息渲染 ----
 function appendMessage(role, content, messageId, isTruncated, isStreaming) {
   var div = document.createElement("div");
@@ -1402,7 +1325,6 @@ function renderFileActions(f) {
     '<select class="export-select" onchange="moveFileToFolder(\'' + f.file_id + '\',this.value)">' +
       folderOpts +
     '</select>' +
-    '<button class="btn btn-tiny" onclick="playTTS(\'' + f.file_id + '\')" title="' + t("kb.ttsDocTitle") + '">' + ICONS.volume2 + ' TTS</button>' +
     '<button class="btn btn-tiny btn-primary" onclick="translateDocument(\'' + f.file_id + '\',\'' + escapeHtml(f.file_name).replace(/'/g, "\\'") + '\')" title="' + t("kb.translateTitle") + '">' + t("kb.translateBtn") + '</button>' +
     '<button class="btn btn-tiny btn-danger" onclick="deleteKnowledge(\'' + f.file_id + '\')">' + t("kb.delete") + '</button>';
 }
@@ -1943,22 +1865,29 @@ async function loadSystemState() {
     }
   } catch (_) {}
 
-  // 硬件采样
+  // 硬件信息 — 直读实时采样端点
   try {
-    var logResp = await fetch(BACKEND_URL + "/api/v1/log/export?page=1&page_size=1&api_version=v1");
-    var logData = await logResp.json();
-    if (logData.logs && logData.logs.length > 0) {
-      var latest = logData.logs[0];
-      if (latest.metrics) {
-        if (latest.metrics.gpu_memory_used_mb) {
-          document.getElementById("hw-gpu").textContent = latest.metrics.gpu_memory_used_mb + " MB";
-        }
-        if (latest.metrics.cpu_utilization_percent) {
-          document.getElementById("hw-cpu").textContent = latest.metrics.cpu_utilization_percent + "%";
-        }
-        if (latest.metrics.ram_used_mb) {
-          document.getElementById("hw-ram").textContent = latest.metrics.ram_used_mb + " MB";
-        }
+    var hwResp = await fetch(BACKEND_URL + "/api/v1/system/hardware");
+    var hwData = await hwResp.json();
+    if (hwData.data) {
+      var d = hwData.data;
+      var gpuUsed = d.gpu_memory_used_mb;
+      var gpuTotal = d.gpu_memory_total_mb;
+      if (gpuTotal !== undefined && gpuTotal > 0) {
+        document.getElementById("hw-gpu").textContent = (gpuUsed || 0) + " / " + gpuTotal + " MB";
+      } else if (gpuUsed !== undefined) {
+        document.getElementById("hw-gpu").textContent = gpuUsed + " MB";
+      }
+      var cpuVal = d.cpu_utilization_percent;
+      if (cpuVal !== undefined && cpuVal !== null) {
+        document.getElementById("hw-cpu").textContent = Math.round(cpuVal) + "%";
+      }
+      var ramUsed = d.ram_used_mb;
+      var ramTotal = d.ram_total_mb;
+      if (ramTotal !== undefined && ramTotal > 0) {
+        document.getElementById("hw-ram").textContent = Math.round(ramUsed || 0) + " / " + ramTotal + " MB";
+      } else if (ramUsed !== undefined) {
+        document.getElementById("hw-ram").textContent = Math.round(ramUsed) + " MB";
       }
     }
   } catch (_) {}
@@ -2213,185 +2142,6 @@ async function batchImportFiles(input) {
   loadKnowledgeList();
   loadFolderTree();
   input.value = "";
-}
-
-// ---- TTS 播放器 (Web Speech API) ----
-var ttsPlayerState = {
-  playing: false,
-  paused: false,
-  text: "",
-  currentCharIndex: 0,
-  totalChars: 0,
-};
-
-function initTTSPlayer() {
-  var voiceSelect = document.getElementById("tts-voice-select");
-
-  function loadVoices() {
-    var voices = window.speechSynthesis.getVoices();
-    if (voices.length === 0) return;
-    voiceSelect.innerHTML = voices.map(function (v, i) {
-      var label = v.name + " (" + v.lang + ")";
-      var sel = v.lang.indexOf("zh") !== -1 ? " selected" : (v.lang.indexOf("en") !== -1 && voiceSelect.innerHTML.indexOf("selected") === -1 ? " selected" : "");
-      return '<option value="' + i + '"' + sel + '>' + label + '</option>';
-    }).join("");
-  }
-
-  loadVoices();
-  window.speechSynthesis.onvoiceschanged = loadVoices;
-
-  document.getElementById("tts-btn-play").addEventListener("click", function () {
-    if (ttsPlayerState.playing && !ttsPlayerState.paused) {
-      window.speechSynthesis.pause();
-      ttsPlayerState.paused = true;
-      document.getElementById("tts-btn-play").innerHTML = ICONS.play;
-      document.getElementById("tts-btn-play").classList.remove("tts-play-btn");
-      document.getElementById("tts-btn-play").style.background = "var(--bg-tertiary)";
-    } else if (ttsPlayerState.paused) {
-      window.speechSynthesis.resume();
-      ttsPlayerState.paused = false;
-      document.getElementById("tts-btn-play").innerHTML = ICONS.pause;
-      document.getElementById("tts-btn-play").classList.add("tts-play-btn");
-      document.getElementById("tts-btn-play").style.background = "";
-    } else {
-      startTTSPlayback();
-    }
-  });
-
-  document.getElementById("tts-btn-stop").addEventListener("click", stopTTS);
-
-  document.getElementById("tts-speed").addEventListener("input", function () {
-    var speed = parseFloat(this.value);
-    document.getElementById("tts-speed-label").textContent = speed.toFixed(2) + "x";
-    if (ttsPlayerState.playing && !ttsPlayerState.paused) {
-      var pos = ttsPlayerState.currentCharIndex;
-      window.speechSynthesis.cancel();
-      ttsPlayerState.currentCharIndex = pos;
-      ttsPlayerState.playing = false;
-      startTTSPlayback();
-    }
-  });
-
-  document.getElementById("tts-player-close-btn").addEventListener("click", function () {
-    stopTTS();
-    document.getElementById("tts-player-modal").classList.add("hidden");
-  });
-
-  document.querySelector("#tts-player-modal .modal-mask").addEventListener("click", function () {
-    stopTTS();
-    document.getElementById("tts-player-modal").classList.add("hidden");
-  });
-}
-
-function stopTTS() {
-  window.speechSynthesis.cancel();
-  ttsPlayerState.playing = false;
-  ttsPlayerState.paused = false;
-  ttsPlayerState.currentCharIndex = 0;
-  document.getElementById("tts-btn-play").innerHTML = ICONS.play;
-  document.getElementById("tts-btn-play").classList.remove("tts-play-btn");
-  document.getElementById("tts-btn-play").style.background = "";
-  document.getElementById("tts-progress-bar").style.width = "0%";
-  document.getElementById("tts-time-label").textContent = "00:00 / 00:00";
-}
-
-function startTTSPlayback() {
-  var text = ttsPlayerState.text.substring(ttsPlayerState.currentCharIndex);
-  if (!text.trim()) {
-    stopTTS();
-    return;
-  }
-
-  var voices = window.speechSynthesis.getVoices();
-  var voiceIdx = parseInt(document.getElementById("tts-voice-select").value) || 0;
-  var speed = parseFloat(document.getElementById("tts-speed").value) || 1.0;
-
-  var utterance = new SpeechSynthesisUtterance(text);
-  if (voices[voiceIdx]) utterance.voice = voices[voiceIdx];
-  utterance.rate = speed;
-  utterance.volume = 1.0;
-
-  utterance.onend = function () {
-    ttsPlayerState.playing = false;
-    ttsPlayerState.paused = false;
-    ttsPlayerState.currentCharIndex = 0;
-    document.getElementById("tts-btn-play").innerHTML = ICONS.play;
-    document.getElementById("tts-btn-play").classList.remove("tts-play-btn");
-    document.getElementById("tts-btn-play").style.background = "";
-    document.getElementById("tts-progress-bar").style.width = "100%";
-    updateTTSProgress(true);
-  };
-
-  utterance.onerror = function (ev) {
-    if (ev.error !== "canceled" && ev.error !== "interrupted") {
-      showToast(t("toast.ttsError") + ev.error, "error");
-    }
-    stopTTS();
-  };
-
-  // 用定时器估算进度 (SpeechSynthesis 不提供可靠的字边界事件)
-  var charStart = ttsPlayerState.currentCharIndex;
-  var startTime = Date.now();
-  var totalDuration = (text.length / (4 * speed)) * 1000;
-
-  utterance.onstart = function () {
-    ttsPlayerState._progressTimer = setInterval(function () {
-      var elapsed = (Date.now() - startTime) / 1000;
-      var estimatedChars = Math.min(elapsed * 4 * speed, text.length);
-      ttsPlayerState.currentCharIndex = charStart + Math.floor(estimatedChars);
-      updateTTSProgress(false);
-    }, 200);
-  };
-
-  ttsPlayerState.playing = true;
-  ttsPlayerState.paused = false;
-  document.getElementById("tts-btn-play").innerHTML = ICONS.pause;
-  document.getElementById("tts-btn-play").classList.add("tts-play-btn");
-  document.getElementById("tts-btn-play").style.background = "";
-
-  window.speechSynthesis.speak(utterance);
-}
-
-function updateTTSProgress(isFinal) {
-  if (isFinal) {
-    if (ttsPlayerState._progressTimer) { clearInterval(ttsPlayerState._progressTimer); ttsPlayerState._progressTimer = null; }
-    ttsPlayerState.currentCharIndex = ttsPlayerState.totalChars;
-  }
-  var pct = ttsPlayerState.totalChars > 0 ? (ttsPlayerState.currentCharIndex / ttsPlayerState.totalChars * 100) : 0;
-  document.getElementById("tts-progress-bar").style.width = Math.min(pct, 100) + "%";
-
-  var speed = parseFloat(document.getElementById("tts-speed").value) || 1.0;
-  var charsPerSec = 4 * speed;
-  var elapsed = ttsPlayerState.totalChars > 0 ? ttsPlayerState.currentCharIndex / charsPerSec : 0;
-  var total = ttsPlayerState.totalChars > 0 ? ttsPlayerState.totalChars / charsPerSec : 0;
-  document.getElementById("tts-time-label").textContent = formatTime(elapsed) + " / " + formatTime(total);
-}
-
-function formatTime(seconds) {
-  if (seconds === Infinity || isNaN(seconds)) seconds = 0;
-  var m = Math.floor(seconds / 60);
-  var s = Math.floor(seconds % 60);
-  return (m < 10 ? "0" : "") + m + ":" + (s < 10 ? "0" : "") + s;
-}
-
-async function playTTS(fileId) {
-  try {
-    var resp = await fetch(BACKEND_URL + "/api/v1/knowledge/document/" + fileId + "/content");
-    var data = await resp.json();
-    if (data.code === 100 && data.data && data.data.content) {
-      ttsPlayerState.text = data.data.content;
-      ttsPlayerState.totalChars = ttsPlayerState.text.length;
-      ttsPlayerState.currentCharIndex = 0;
-      document.getElementById("tts-player-title").textContent = data.data.file_name || t("modal.ttsTitle");
-      document.getElementById("tts-player-modal").classList.remove("hidden");
-      stopTTS();
-      startTTSPlayback();
-    } else {
-      showToast(t("toast.ttsNoContent"), "error");
-    }
-  } catch (_) {
-    showToast(t("toast.ttsUnavailable"), "error");
-  }
 }
 
 // ---- 翻译 ----
@@ -2710,4 +2460,3 @@ document.getElementById("setting-theme-toggle").addEventListener("change", funct
 // ---- 初始化 ----
 applyLanguage(currentLang);
 initTheme();
-initTTSPlayer();

@@ -298,6 +298,8 @@ async def upload_file(
         llm = get_llm_service()
         embeddings = await llm.embed(chunks)
 
+        indexed_count = 0
+        embedding_ok = False
         if embeddings and len(embeddings) == len(chunks):
             import numpy as np
             rag = RAGService()
@@ -307,8 +309,25 @@ async def upload_file(
                 chunks=chunks,
                 embeddings=[np.array(e, dtype=np.float32) for e in embeddings],
             )
+            embedding_ok = True
         else:
-            indexed_count = 0
+            # Embedding 模型未就绪 — 仍保留文档和文本分片（翻译/上下文可正常使用），向量索引待后续重建
+            logger.log(LogType.ERROR, {
+                "event": "embedding_skipped",
+                "file_id": file_id,
+                "file_name": file.filename,
+                "chunk_count": len(chunks),
+                "embed_loaded": llm.is_embed_loaded,
+                "note": "FAISS 索引已跳过，文档文本已保存，可在 Embedding 模型就绪后通过重新上传来补索引",
+            })
+            for i, chunk_text in enumerate(chunks):
+                chunk_id = f"chunk-{uuid.uuid4().hex[:12]}"
+                db.conn.execute(
+                    "INSERT INTO rag_chunks (chunk_id, file_id, chunk_index, content, token_count, faiss_vector_id) "
+                    "VALUES (?, ?, ?, ?, ?, ?)",
+                    (chunk_id, file_id, i, chunk_text, RAGService._estimate_tokens(chunk_text), -1),
+                )
+            db.conn.commit()
 
         state_mgr.set_worker(StateCode.EMBEDDING, False)
         state_mgr.transition(StateCode.IDLE)
@@ -326,6 +345,7 @@ async def upload_file(
                 "folder_id": folder_id,
                 "version": new_version,
                 "import_group_id": import_group_id,
+                "embedding_ok": embedding_ok,
             },
         }
 
@@ -907,6 +927,7 @@ class TranslateRequest(BaseModel):
 async def translate_document(req: TranslateRequest):
     """翻译文档全文，通过 Bridge LLM 执行。"""
     import httpx
+    from backend.services.llm_service import get_llm_service
 
     db = DatabaseManager.get_instance()
     row = db.conn.execute(
@@ -930,6 +951,23 @@ async def translate_document(req: TranslateRequest):
             "code": StateCode.ERROR.value,
             "status": StateCode.ERROR.name,
             "message": "文档内容为空",
+        }
+
+    # 检查 Bridge LLM 是否就绪
+    llm_svc = get_llm_service()
+    bridge_ok = await llm_svc.ping()
+    if not bridge_ok:
+        return {
+            "code": StateCode.ERROR.value,
+            "status": StateCode.ERROR.name,
+            "message": "AI 服务尚未就绪，请等待模型加载完成后重试（启动后约需 30-60 秒）",
+        }
+    await llm_svc.health()
+    if not llm_svc.is_llm_loaded:
+        return {
+            "code": StateCode.ERROR.value,
+            "status": StateCode.ERROR.name,
+            "message": "LLM 模型尚未加载完成，请稍后重试",
         }
 
     full_text = "\n\n".join(c[0] for c in chunks)
