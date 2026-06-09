@@ -91,6 +91,11 @@ class AuditLogger:
         except queue.Full:
             pass
 
+    def clear_all(self) -> int:
+        """清空全部审计日志。先刷盘确保数据一致性，再通过同一连接执行 DELETE。"""
+        self.flush()
+        return self._db.clear_all()
+
     def shutdown(self) -> None:
         """优雅关闭：刷盘后停止后台线程并关闭数据库。"""
         self._running = False

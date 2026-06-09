@@ -25,6 +25,7 @@ function bridgeLog(msg) {
   }
 }
 let ttsModelId = null;
+let ttsConfig = null;  // { language, speed, voice } — 变更时自动重载模型
 let llmModelName = "";
 let embedModelName = "";
 let whisperModelName = "";
@@ -34,7 +35,13 @@ let modelsDir = null;
 // ---- 延迟加载 QVAC SDK (避免阻塞 Electron 启动) ----
 let sdk = null;
 let ttsAvailable = false;
-let textToSpeech, TTS_T3_TURBO_EN_CHATTERBOX_Q8_0, TTS_S3GEN_EN_CHATTERBOX;
+let textToSpeech;
+// Supertone TTS 模型常量 (SDK v0.6.2+)
+let TTS_TEXT_ENCODER, TTS_DURATION_PREDICTOR, TTS_VECTOR_ESTIMATOR, TTS_VOCODER,
+    TTS_UNICODE_INDEXER, TTS_CONFIG, TTS_VOICE_STYLE;
+// 音色映射 (voice_model → voice style constant)
+let TTS_VOICE_STYLES = {};
+const SUPERTONIC_SAMPLE_RATE = 44100;
 
 async function loadSDK() {
   if (sdk) return sdk;
@@ -42,15 +49,29 @@ async function loadSDK() {
   bridgeLog("importing @qvac/sdk...");
   sdk = await import("@qvac/sdk");
   bridgeLog(`@qvac/sdk imported (${Date.now() - t0}ms)`);
-  // 尝试加载 TTS
+  // 尝试加载 TTS (Supertone)
   try {
-    if (sdk.textToSpeech && sdk.TTS_T3_TURBO_EN_CHATTERBOX_Q8_0) {
+    if (sdk.textToSpeech && sdk.TTS_SUPERTONIC2_OFFICIAL_TEXT_ENCODER_SUPERTONE_FP32) {
       textToSpeech = sdk.textToSpeech;
-      TTS_T3_TURBO_EN_CHATTERBOX_Q8_0 = sdk.TTS_T3_TURBO_EN_CHATTERBOX_Q8_0;
-      TTS_S3GEN_EN_CHATTERBOX = sdk.TTS_S3GEN_EN_CHATTERBOX;
+      TTS_TEXT_ENCODER = sdk.TTS_SUPERTONIC2_OFFICIAL_TEXT_ENCODER_SUPERTONE_FP32;
+      TTS_DURATION_PREDICTOR = sdk.TTS_SUPERTONIC2_OFFICIAL_DURATION_PREDICTOR_SUPERTONE_FP32;
+      TTS_VECTOR_ESTIMATOR = sdk.TTS_SUPERTONIC2_OFFICIAL_VECTOR_ESTIMATOR_SUPERTONE_FP32;
+      TTS_VOCODER = sdk.TTS_SUPERTONIC2_OFFICIAL_VOCODER_SUPERTONE_FP32;
+      TTS_UNICODE_INDEXER = sdk.TTS_SUPERTONIC2_OFFICIAL_UNICODE_INDEXER_SUPERTONE_FP32;
+      TTS_CONFIG = sdk.TTS_SUPERTONIC2_OFFICIAL_TTS_CONFIG_SUPERTONE;
+      TTS_VOICE_STYLE = sdk.TTS_SUPERTONIC2_OFFICIAL_VOICE_STYLE_SUPERTONE;
+      // 收集可用的音色变体
+      TTS_VOICE_STYLES = {};
+      for (let i = 1; i <= 9; i++) {
+        const key = "TTS_SUPERTONIC2_OFFICIAL_VOICE_STYLE_SUPERTONE_" + i;
+        if (sdk[key]) TTS_VOICE_STYLES["style_" + i] = sdk[key];
+      }
       ttsAvailable = true;
+      bridgeLog("TTS: Supertone models available (" + Object.keys(TTS_VOICE_STYLES).length + " voice styles)");
+    } else {
+      bridgeLog("TTS: Supertone models NOT available in this SDK version");
     }
-  } catch { /* TTS 不可用 */ }
+  } catch (e) { bridgeLog("TTS: load error — " + e.message); }
   return sdk;
 }
 
@@ -324,37 +345,98 @@ async function handleRequest(req, res) {
     }
   }
 
-  // ---- TTS Speak ----
+  // ---- TTS Speak (Supertone) ----
   if (url.pathname === "/api/tts/speak" && req.method === "POST") {
-    if (!ttsAvailable) return json(res, 503, { error: "TTS not available" });
+    if (!ttsAvailable) return json(res, 503, { error: "TTS not available — Supertone models missing from SDK" });
     const body = await readBody(req);
     if (!body.text) return json(res, 400, { error: "text is required" });
 
+    const lang = "en";
+    const speed = typeof body.speed === "number" ? body.speed : 1.1;
+    const voice = body.voice || "style_1";
+    const newConfig = { speed: speed, voice: voice };
+
+    // 模型未加载 或 配置变更 → 重载
     let modelId = ttsModelId;
-    if (!modelId) {
+    if (!modelId || !ttsConfig ||
+        ttsConfig.speed !== newConfig.speed ||
+        ttsConfig.voice !== newConfig.voice) {
+      if (modelId && ttsConfig) {
+        try { await sdkModule.unloadModel({ modelId }); } catch {}
+        bridgeLog(`TTS: unloaded previous model (config changed)`);
+      }
       try {
-        process.stderr.write("[Bridge] Loading TTS Chatterbox...\n");
+        let voiceStyleSrc = TTS_VOICE_STYLE.src;
+        if (voice && TTS_VOICE_STYLES[voice]) {
+          voiceStyleSrc = TTS_VOICE_STYLES[voice].src;
+        }
+        process.stderr.write(`[Bridge] Loading TTS Supertone (speed=${speed}, voice=${voice})...\n`);
         modelId = await sdkModule.loadModel({
-          modelSrc: TTS_T3_TURBO_EN_CHATTERBOX_Q8_0.src,
-          modelType: "tts",
+          modelSrc: TTS_TEXT_ENCODER.src,
+          modelType: "onnx-tts",
           modelConfig: {
-            ttsEngine: "chatterbox",
-            language: body.language === "zh" ? "zh" : "en",
-            s3genModelSrc: TTS_S3GEN_EN_CHATTERBOX.src,
+            ttsEngine: "supertonic",
+            language: lang,
+            ttsSpeed: speed,
+            ttsNumInferenceSteps: 5,
+            ttsSupertonicMultilingual: true,
+            ttsTextEncoderSrc: TTS_TEXT_ENCODER.src,
+            ttsDurationPredictorSrc: TTS_DURATION_PREDICTOR.src,
+            ttsVectorEstimatorSrc: TTS_VECTOR_ESTIMATOR.src,
+            ttsVocoderSrc: TTS_VOCODER.src,
+            ttsUnicodeIndexerSrc: TTS_UNICODE_INDEXER.src,
+            ttsTtsConfigSrc: TTS_CONFIG.src,
+            ttsVoiceStyleSrc: voiceStyleSrc,
           },
         });
-        ttsModelId = modelId; ttsModelName = "Chatterbox-T3-Turbo";
+        ttsModelId = modelId;
+        ttsConfig = newConfig;
+        ttsModelName = "Supertone2-ML";
+        bridgeLog(`TTS model loaded: ${ttsModelName} (${modelId})`);
       } catch (err) {
+        ttsModelId = null; ttsConfig = null;
+        bridgeLog(`TTS load error: ${err.message}`);
         return json(res, 500, { error: "Failed to load TTS model: " + err.message });
       }
     }
     try {
       const result = textToSpeech({ modelId, text: body.text, inputType: "text", stream: false });
       const audioBuffer = await result.buffer;
-      const sampleRate = 24000, numChannels = 1, bitsPerSample = 16;
+      process.stderr.write(`[Bridge] TTS output: ctor=${audioBuffer.constructor?.name || "none"}, typeof=${typeof audioBuffer}, len=${audioBuffer.length}, isView=${ArrayBuffer.isView(audioBuffer)}\n`);
+
+      // QVAC SDK textToSpeech 可能返回 Int16Array, Float32Array, Node Buffer, 或 array-like object
+      let samples;
+      if (audioBuffer instanceof Float32Array) {
+        samples = new Int16Array(audioBuffer.length);
+        for (let i = 0; i < audioBuffer.length; i++) {
+          const s = Math.max(-1, Math.min(1, audioBuffer[i]));
+          samples[i] = s < 0 ? Math.round(s * 32768) : Math.round(s * 32767);
+        }
+      } else if (audioBuffer instanceof Int16Array) {
+        samples = audioBuffer;
+      } else if (Buffer.isBuffer(audioBuffer)) {
+        samples = new Int16Array(audioBuffer.buffer, audioBuffer.byteOffset, audioBuffer.length / 2);
+      } else if (ArrayBuffer.isView(audioBuffer)) {
+        try { samples = new Int16Array(audioBuffer.buffer, audioBuffer.byteOffset, audioBuffer.byteLength / 2); } catch (_) {
+          samples = Int16Array.from(audioBuffer);
+        }
+      } else if (audioBuffer && audioBuffer.length > 0) {
+        // Array-like object: {0: val, 1: val, ..., length: N}
+        samples = Int16Array.from(audioBuffer);
+        process.stderr.write(`[Bridge] TTS: converted from array-like object, got ${samples.length} samples\n`);
+      } else {
+        return json(res, 500, { error: "Unexpected TTS output: " + JSON.stringify({
+          type: typeof audioBuffer,
+          ctor: audioBuffer?.constructor?.name,
+          len: audioBuffer?.length,
+        })});
+      }
+
+      const numChannels = 1, bitsPerSample = 16;
+      const sampleRate = SUPERTONIC_SAMPLE_RATE;
       const byteRate = sampleRate * numChannels * bitsPerSample / 8;
       const blockAlign = numChannels * bitsPerSample / 8;
-      const dataSize = audioBuffer.length * 2;
+      const dataSize = samples.length * (bitsPerSample / 8);
       const header = Buffer.alloc(44);
       header.write("RIFF", 0); header.writeUInt32LE(36 + dataSize, 4); header.write("WAVE", 8);
       header.write("fmt ", 12); header.writeUInt32LE(16, 16);
@@ -362,10 +444,11 @@ async function handleRequest(req, res) {
       header.writeUInt32LE(sampleRate, 24); header.writeUInt32LE(byteRate, 28);
       header.writeUInt16LE(blockAlign, 32); header.writeUInt16LE(bitsPerSample, 34);
       header.write("data", 36); header.writeUInt32LE(dataSize, 40);
-      const audioData = Buffer.from(Int16Array.from(audioBuffer).buffer);
+      const audioData = Buffer.from(samples.buffer, samples.byteOffset, samples.byteLength);
       res.writeHead(200, { "Content-Type": "audio/wav" });
       return res.end(Buffer.concat([header, audioData]));
     } catch (err) {
+      bridgeLog(`TTS speak error: ${err.message}`);
       return json(res, 500, { error: err.message });
     }
   }

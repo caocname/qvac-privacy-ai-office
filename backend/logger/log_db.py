@@ -144,6 +144,16 @@ class LogDatabase:
             ).fetchall()
         return self._rows_to_items(rows), total
 
+    def clear_all(self) -> int:
+        """清空全部审计日志（使用同一连接，避免 WAL 锁冲突）。"""
+        if not self._conn:
+            return -1
+        with self._lock:
+            count = self._conn.execute("SELECT COUNT(*) FROM audit_logs").fetchone()[0]
+            self._conn.execute("DELETE FROM audit_logs")
+            self._conn.commit()
+            return count
+
     def _rows_to_items(self, rows) -> list[LogExportItem]:
         items: list[LogExportItem] = []
         for row in rows:

@@ -392,6 +392,15 @@
             </div>
           </div>
 
+          <!-- 数据清理 -->
+          <div class="setting-group">
+            <h3 data-i18n="settings.dataCleanup">数据清理</h3>
+            <div class="state-card">
+              <p class="setting-desc" data-i18n="settings.clearAllDesc">清空所有知识库文件、FAISS 索引、聊天会话、ASR 归档、审计日志及上传文件。此操作不可撤销。</p>
+            </div>
+            <button id="clear-all-btn" class="btn btn-danger" style="margin-top:8px" data-i18n="settings.clearAllBtn">清理所有数据</button>
+          </div>
+
           <!-- 外观 / Appearance -->
           <div class="setting-group">
             <h3 data-i18n="settings.appearance">外观 / Appearance</h3>
@@ -422,6 +431,23 @@
         </div>
       </section>
     </main>
+  </div>
+
+  <!-- ========== 密钥初始化覆层（启动时强制） ========== -->
+  <div id="key-setup-overlay" class="overlay hidden">
+    <div class="overlay-content overlay-content-wide">
+      <h2 data-i18n="keysetup.title">安全初始化</h2>
+      <p id="key-setup-msg" data-i18n="keysetup.desc">正在检查加密密钥状态...</p>
+      <div id="key-setup-error" style="display:none;color:var(--error);margin:12px 0;font-size:13px"></div>
+      <div id="key-setup-success" style="display:none">
+        <p data-i18n="keysetup.success">主密钥已生成。请立即下载恢复密钥文件并保存在安全位置。</p>
+        <code id="key-setup-hex" style="display:block;background:var(--bg-primary);padding:10px;border-radius:4px;font-size:11px;word-break:break-all;margin:12px 0;max-height:100px;overflow-y:auto"></code>
+        <p style="color:var(--warning);font-size:12px;margin:8px 0" data-i18n="keysetup.warning">丢失此密钥将导致所有加密数据永久无法恢复。</p>
+        <button id="key-setup-download-btn" class="btn btn-primary" data-i18n="keysetup.download">下载恢复密钥 (.key)</button>
+        <button id="key-setup-done-btn" class="btn btn-primary" style="margin-left:8px" data-i18n="keysetup.done">已安全保存，进入应用</button>
+      </div>
+      <button id="key-setup-retry-btn" class="btn btn-primary" style="display:none;margin-top:12px" data-i18n="keysetup.retry">重试初始化</button>
+    </div>
   </div>
 
   <!-- ========== Kill Switch 网络锁定覆层 ========== -->
@@ -562,6 +588,44 @@
       <div class="modal-footer">
         <button id="tr-import-submit-btn" class="btn btn-primary" data-i18n="modal.confirmImport">确认导入</button>
         <button id="tr-import-cancel-btn" class="btn btn-secondary" data-i18n="modal.cancel">取消</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ========== TTS 语音播放弹窗（文档） ========== -->
+  <div id="tts-modal" class="modal hidden">
+    <div class="modal-mask"></div>
+    <div class="modal-dialog tts-dialog">
+      <h3 data-i18n="modal.ttsTitle">语音播放</h3>
+      <p id="tts-modal-doc-name" class="tts-doc-name"></p>
+      <div class="tts-controls">
+        <button id="tts-play-btn" class="btn btn-primary tts-btn" title="播放/暂停">&#9654;</button>
+        <button id="tts-stop-btn" class="btn btn-danger tts-btn" title="停止">&#9632;</button>
+      </div>
+      <div class="tts-settings">
+        <div class="tts-setting-row">
+          <label data-i18n="modal.ttsVoice">音色</label>
+          <select id="tts-voice-select" class="select-sm">
+            <option value="style_1">风格 1</option>
+            <option value="style_2">风格 2</option>
+            <option value="style_3">风格 3</option>
+            <option value="style_4">风格 4</option>
+            <option value="style_5">风格 5</option>
+          </select>
+        </div>
+        <div class="tts-setting-row">
+          <label data-i18n="modal.ttsSpeed">语速</label>
+          <select id="tts-speed-select" class="select-sm">
+            <option value="0.75">0.75x</option>
+            <option value="1.0">1.0x</option>
+            <option value="1.1" selected>1.1x</option>
+            <option value="1.5">1.5x</option>
+            <option value="2.0">2.0x</option>
+          </select>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button id="tts-close-btn" class="btn btn-secondary" data-i18n="modal.close">关闭</button>
       </div>
     </div>
   </div>

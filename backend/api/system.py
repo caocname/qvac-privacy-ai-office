@@ -1,22 +1,28 @@
 """
-系统 API — 状态查询、凭据灾备恢复、密钥导出、首次启动引导。
+系统 API — 状态查询、凭据灾备恢复、密钥导出、首次启动引导、全量数据清理。
 """
+import shutil
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 
 from fastapi import APIRouter
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
+from backend.config import DATA_DIR, DATABASE_PATH, UPLOAD_DIR, FAISS_INDEX_DIR, AUDIT_LOG_PATH
 from backend.crypto.aes_gcm import (
     derive_key_from_credential,
     inject_key,
     export_recovery_key,
     initialize_master_key,
     generate_mnemonic,
+    _get_keyring,
 )
 from backend.logger.audit_logger import get_audit_logger
 from backend.logger.log_models import LogType
 from backend.state_machine import StateCode, get_state_manager
+
+_clear_all_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="clear-all")
 
 router = APIRouter(prefix="/api/v1/system", tags=["system"])
 
@@ -122,6 +128,69 @@ async def export_key():
     }
 
 
+@router.post("/credential/init")
+async def credential_init():
+    """手动触发主密钥初始化。
+
+    若 keyring 可用且凭据已存在则返回已有密钥信息；
+    若 keyring 可用但凭据不存在则自动生成并返回恢复密钥；
+    若 keyring 不可用则返回错误。
+    """
+    keyring = _get_keyring()
+    if not keyring:
+        return JSONResponse(
+            status_code=500,
+            content={
+                "code": StateCode.ERROR.value,
+                "status": StateCode.ERROR.name,
+                "error_class": "KEYRING_UNAVAILABLE",
+                "message": "Windows 凭据管理器不可用。请安装 keyring 包并确保系统支持。",
+            },
+        )
+
+    existing = derive_key_from_credential()
+    if existing:
+        recovery_hex = export_recovery_key()
+        return {
+            "code": StateCode.IDLE.value,
+            "status": StateCode.IDLE.name,
+            "message": "主密钥已就绪。",
+            "data": {
+                "recovery_key_hex": recovery_hex,
+                "save_as": "safe_recovery.key",
+                "warning": "请将恢复密钥保存在安全位置。丢失将导致所有加密数据无法恢复。",
+                "already_existed": True,
+            },
+        }
+
+    master_key = initialize_master_key()
+    if not master_key:
+        return JSONResponse(
+            status_code=500,
+            content={
+                "code": StateCode.ERROR.value,
+                "status": StateCode.ERROR.name,
+                "error_class": "INIT_FAILED",
+                "message": "主密钥初始化失败。请检查系统权限。",
+            },
+        )
+
+    recovery_hex = export_recovery_key()
+    get_audit_logger().log(LogType.SECURITY, {"event": "master_key_initialized_manual"})
+
+    return {
+        "code": StateCode.IDLE.value,
+        "status": StateCode.IDLE.name,
+        "message": "主密钥已生成并注入 Windows 凭据管理器。请立即导出恢复密钥。",
+        "data": {
+            "recovery_key_hex": recovery_hex,
+            "save_as": "safe_recovery.key",
+            "warning": "请将恢复密钥保存在安全位置。丢失将导致所有加密数据无法恢复。",
+            "already_existed": False,
+        },
+    }
+
+
 @router.get("/setup/status")
 async def setup_status():
     """首次启动引导状态检查 — 前端可据此决定是否弹出密钥导出引导。
@@ -209,4 +278,87 @@ async def get_hardware():
         "code": StateCode.IDLE.value,
         "status": StateCode.IDLE.name,
         "data": metrics,
+    }
+
+
+@router.post("/clear-all")
+async def clear_all():
+    """清空所有用户数据 — 知识库、会话、ASR 归档、审计日志、上传文件、FAISS 索引。
+
+    高危操作，前端必须使用 3 秒倒计时二次确认（R-09 规则）。
+    文件物理删除在独立线程池中异步执行（R-05 规则）。
+    """
+    from backend.database.connection import DatabaseManager
+
+    db = DatabaseManager.get_instance()
+    stats: dict[str, int] = {}
+    errors: list[str] = []
+
+    # 1. 清空数据库表（保留表结构）— 先删子表再删父表，避免外键约束冲突
+    tables = ["rag_chunks", "chat_records", "knowledge_base",
+              "knowledge_folders", "asr_archive", "sessions"]
+    for table in tables:
+        try:
+            cur = db.conn.execute(f"DELETE FROM {table}")
+            stats[f"db_{table}"] = cur.rowcount
+        except Exception as e:
+            stats[f"db_{table}"] = -1
+            errors.append(f"{table}: {e}")
+    db.conn.commit()
+
+    # 2. 清空审计日志 — 通过 AuditLogger 同一连接执行，避免 WAL 锁冲突
+    try:
+        logger = get_audit_logger()
+        cleared = logger.clear_all()
+        stats["audit_logs"] = cleared
+    except Exception as e:
+        stats["audit_logs"] = -1
+        errors.append(f"audit_logs: {e}")
+
+    # 3. 异步删除上传文件
+    def _delete_uploads():
+        count = 0
+        if UPLOAD_DIR.exists():
+            for f in UPLOAD_DIR.iterdir():
+                try:
+                    f.unlink()
+                    count += 1
+                except Exception:
+                    pass
+        return count
+
+    # 4. 异步清空 FAISS 索引
+    def _clear_faiss():
+        count = 0
+        if FAISS_INDEX_DIR.exists():
+            for f in FAISS_INDEX_DIR.iterdir():
+                try:
+                    if f.is_file():
+                        f.unlink()
+                    else:
+                        shutil.rmtree(f, ignore_errors=True)
+                    count += 1
+                except Exception:
+                    pass
+        return count
+
+    future_uploads = _clear_all_executor.submit(_delete_uploads)
+    future_faiss = _clear_all_executor.submit(_clear_faiss)
+
+    stats["uploads_deleted"] = future_uploads.result()
+    stats["faiss_files_deleted"] = future_faiss.result()
+
+    # 5. 记录审计日志（写入完成后立即刷盘的新条目）
+    get_audit_logger().log(LogType.SECURITY, {
+        "event": "clear_all_data",
+        "stats": stats,
+    })
+
+    success = all(v >= 0 for v in stats.values())
+
+    return {
+        "code": StateCode.IDLE.value if success else StateCode.ERROR.value,
+        "status": StateCode.IDLE.name if success else StateCode.ERROR.name,
+        "message": "所有用户数据已清空。" if success else f"部分清空失败: {'; '.join(errors)}",
+        "data": {"stats": stats, "errors": errors} if errors else {"stats": stats},
     }

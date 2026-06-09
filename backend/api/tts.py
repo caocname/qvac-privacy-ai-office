@@ -8,7 +8,7 @@ import json
 import uuid
 
 from fastapi import APIRouter
-from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
 from backend.logger.audit_logger import get_audit_logger
@@ -21,7 +21,7 @@ router = APIRouter(prefix="/api/v1/tts", tags=["tts"])
 class TTSStreamRequest(BaseModel):
     api_version: str = "v1"
     text: str = Field(..., description="待朗读的文本")
-    voice_model: str = Field(default="male_professional")
+    voice_model: str = Field(default="style_1")
     speed: float = Field(default=1.1, ge=0.5, le=3.0)
 
 
@@ -41,6 +41,7 @@ async def stream(req: TTSStreamRequest):
 
     后端通过 Chunked Transfer Encoding 持续向前端推送音频字节流。
     后端主轨保持 100 IDLE (TTS_PLAYING 为纯前端态)。
+    先预检 Bridge 是否可用，失败则立即返回 JSON 错误。
     """
     global _tts_abort_flag
     _tts_abort_flag = False
@@ -56,36 +57,57 @@ async def stream(req: TTSStreamRequest):
         "text_length": len(req.text),
     }, f"TTS streaming: {req.text[:80]}...")
 
-    async def generate_audio():
-        bridge_ok = False
-        try:
-            import httpx
-            async with httpx.AsyncClient(timeout=30.0) as client:
+    # ---- 预检：先从 Bridge 获取完整音频，失败则返回 JSON 错误 ----
+    import httpx
+
+    audio_data: bytes | None = None
+    bridge_error: str | None = None
+
+    try:
+        async with httpx.AsyncClient(timeout=120.0) as client:
+            resp = await client.post(
+                "http://127.0.0.1:18889/api/tts/speak",
+                json={"text": req.text, "language": "zh", "voice": req.voice_model, "speed": req.speed},
+            )
+            if resp.status_code == 200:
+                data = await resp.aread()
+                if data:
+                    audio_data = data
+                else:
+                    bridge_error = "Bridge 返回空音频数据"
+            else:
+                detail = ""
                 try:
-                    resp = await client.post(
-                        "http://127.0.0.1:18889/api/tts/speak",
-                        json={"text": req.text, "language": "zh", "voice": req.voice_model, "speed": req.speed},
-                    )
-                    if resp.status_code == 200:
-                        audio_data = await resp.aread()
-                        if audio_data and not _tts_abort_flag:
-                            bridge_ok = True
-                            chunk_size = 8192
-                            for i in range(0, len(audio_data), chunk_size):
-                                if _tts_abort_flag:
-                                    break
-                                yield audio_data[i:i + chunk_size]
-                                await asyncio.sleep(0)
+                    detail = resp.json().get("error", resp.text[:200])
                 except Exception:
-                    pass
+                    detail = resp.text[:200]
+                bridge_error = f"Bridge TTS 失败 (HTTP {resp.status_code}): {detail}"
+    except Exception as exc:
+        bridge_error = f"无法连接 Bridge 服务 (127.0.0.1:18889): {type(exc).__name__}: {exc}"
 
-            if not bridge_ok and not _tts_abort_flag:
-                get_audit_logger().log(LogType.ERROR, {}, "Bridge TTS call failed — no audio generated")
+    if bridge_error or not audio_data:
+        state_mgr.set_worker(StateCode.TTS_GENERATING, False)
+        get_audit_logger().log(LogType.ERROR, {
+            "error_class": "TTS_BRIDGE_FAILED",
+        }, bridge_error or "无音频数据")
+        return JSONResponse(
+            status_code=503,
+            content={
+                "code": StateCode.ERROR.value,
+                "status": StateCode.ERROR.name,
+                "error_class": "TTS_UNAVAILABLE",
+                "message": bridge_error or "TTS 服务不可用",
+            },
+        )
 
-        except Exception as exc:
-            get_audit_logger().log(LogType.ERROR, {
-                "error_class": type(exc).__name__,
-            }, str(exc))
+    async def generate_audio():
+        try:
+            chunk_size = 8192
+            for i in range(0, len(audio_data), chunk_size):
+                if _tts_abort_flag:
+                    break
+                yield audio_data[i:i + chunk_size]
+                await asyncio.sleep(0)
         finally:
             state_mgr.set_worker(StateCode.TTS_GENERATING, False)
             if not _tts_abort_flag:

@@ -24,6 +24,7 @@ const ICONS = {
   stop: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/></svg>',
   check: '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>',
   volume2: '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/></svg>',
+  loader: '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="spin-icon"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>',
 };
 
 const I18N = {
@@ -63,6 +64,7 @@ const I18N = {
   "chat.chunks":           { zh: " 块", en: " chunks" },
   "chat.ttsPlay":          { zh: "朗读", en: "Read Aloud" },
   "chat.ttsStop":          { zh: "停止", en: "Stop" },
+  "chat.ttsGenerating":    { zh: "生成中...", en: "Generating..." },
   "chat.sessionDefault":   { zh: "会话", en: "Session" },
   "chat.dblClickRename":   { zh: "双击重命名", en: "Double-click to rename" },
   "chat.closeSession":     { zh: "关闭会话", en: "Close Session" },
@@ -185,6 +187,9 @@ const I18N = {
   "settings.missing":      { zh: "缺失", en: "Missing" },
   "settings.aes256":       { zh: "AES-256-GCM", en: "AES-256-GCM" },
   "settings.plaintext":    { zh: "明文 (降级)", en: "Plaintext (Degraded)" },
+  "settings.dataCleanup":  { zh: "数据清理", en: "Data Cleanup" },
+  "settings.clearAllDesc": { zh: "清空所有知识库文件、FAISS 索引、聊天会话、ASR 归档、审计日志及上传文件。此操作不可撤销。", en: "Delete all knowledge base files, FAISS indices, chat sessions, ASR archives, audit logs, and uploaded files. This cannot be undone." },
+  "settings.clearAllBtn":  { zh: "清理所有数据", en: "Clear All Data" },
 
   // 弹窗 / 模态框
   "modal.confirmTitle":    { zh: "确认操作", en: "Confirm" },
@@ -245,6 +250,8 @@ const I18N = {
   "toast.sessionCloseFail":{ zh: "关闭会话失败", en: "Failed to close session" },
   "toast.noSession":       { zh: "会话初始化失败，请稍后重试", en: "Session init failed. Please retry." },
   "toast.ttsFail":         { zh: "TTS 播放失败: ", en: "TTS playback failed: " },
+  "toast.ttsGenerating":   { zh: "正在生成语音，请稍候...", en: "Generating speech, please wait..." },
+  "toast.ttsLoading":      { zh: "正在加载文档内容...", en: "Loading document content..." },
   "toast.folderCreated":   { zh: "文件夹「", en: "Folder \"" },
   "toast.folderCreated2":  { zh: "」已创建", en: "\" created" },
   "toast.createFailed":    { zh: "创建失败", en: "Create failed" },
@@ -284,6 +291,22 @@ const I18N = {
   "toast.translateDone":   { zh: "翻译完成", en: "Translation complete" },
   "toast.translateFailed": { zh: "翻译失败", en: "Translation failed" },
   "toast.translateUnavail":{ zh: "翻译服务不可用", en: "Translation service unavailable" },
+  "toast.clearAllSuccess":  { zh: "所有数据已清空", en: "All data cleared successfully" },
+  "toast.clearAllFail":     { zh: "数据清理失败", en: "Data cleanup failed" },
+  "toast.clearAllReqFail":  { zh: "清理请求失败", en: "Cleanup request failed" },
+
+  // ---- 密钥初始化覆层 ----
+  "keysetup.title":         { zh: "安全初始化", en: "Security Setup" },
+  "keysetup.desc":          { zh: "正在检查加密密钥状态...", en: "Checking encryption key status..." },
+  "keysetup.checking":      { zh: "正在初始化加密密钥，请稍候...", en: "Initializing encryption key, please wait..." },
+  "keysetup.success":       { zh: "主密钥已生成。请立即下载恢复密钥文件并保存在安全位置。", en: "Master key generated. Please download and securely save the recovery key immediately." },
+  "keysetup.warning":       { zh: "丢失此密钥将导致所有加密数据永久无法恢复。", en: "Losing this key will permanently prevent recovery of all encrypted data." },
+  "keysetup.download":      { zh: "下载恢复密钥 (.key)", en: "Download Recovery Key (.key)" },
+  "keysetup.done":          { zh: "已安全保存，进入应用", en: "Saved Securely, Enter App" },
+  "keysetup.retry":         { zh: "重试初始化", en: "Retry Init" },
+  "keysetup.errorKeyring":  { zh: "无法访问 Windows 凭据管理器。请检查 keyring 包是否安装且系统支持。", en: "Cannot access Windows Credential Manager. Please verify keyring is installed and supported." },
+  "keysetup.errorGeneric":  { zh: "密钥初始化失败，请检查系统权限后重试。", en: "Key initialization failed. Please check system permissions and retry." },
+  "keysetup.downloaded":    { zh: "恢复密钥已下载", en: "Recovery key downloaded" },
   "toast.selectRecord":    { zh: "请先选择翻译记录", en: "Please select a translation record first" },
   "toast.recordNotFound":  { zh: "翻译记录未找到", en: "Translation record not found" },
   "toast.exportedAs2":     { zh: "已导出: ", en: "Exported: " },
@@ -458,16 +481,29 @@ function showConfirm(title, msg, onConfirm) {
   }
 
   function handler() {
-    cleanup();
-    // 支持 async onConfirm — 关闭按钮在回调期间禁用
+    clearInterval(timer);
     yesBtn.disabled = true;
     yesBtn.textContent = t("modal.processing");
+    noBtn.disabled = true;
+
+    function finish() {
+      modal2.classList.add("hidden");
+      yesBtn.removeEventListener("click", handler);
+      noBtn.removeEventListener("click", cleanup2);
+      yesBtn.disabled = false;
+      noBtn.disabled = false;
+      yesBtn.textContent = t("modal.confirmDone");
+    }
+
     var result = onConfirm();
     if (result && typeof result.then === "function") {
-      result.catch(function () {}).finally(function () {
-        yesBtn.disabled = false;
-        yesBtn.textContent = t("modal.confirmDone");
+      result.then(function () {
+        finish();
+      }).catch(function () {
+        finish();
       });
+    } else {
+      finish();
     }
   }
 
@@ -519,7 +555,7 @@ async function checkHealth() {
         sendBtn.disabled = false;
         chatInput.disabled = false;
         if (!currentSessionId) initSession();
-        checkSetupStatus();
+        checkKeyMandatory();
         pollCredentialStatus();
       }
       return;
@@ -544,18 +580,142 @@ function updateNavStatus() {
 checkHealth();
 setInterval(checkHealth, 5000);
 
-// ---- 首次设置引导 ----
-async function checkSetupStatus() {
+// ---- 启动时强制密钥检查 ----
+var _keySetupDone = false;
+var _keySetupRunning = false;
+
+async function checkKeyMandatory() {
+  if (_keySetupDone) return;
+  if (_keySetupRunning) return;  // 防重入
+
   try {
     var resp = await fetch(BACKEND_URL + "/api/v1/system/credential/status");
     var data = await resp.json();
-    if (data.data && data.data.credential_present) {
-      // 检查是否已导出过 (用 localStorage 标记)
-      if (!localStorage.getItem("qvac_key_exported")) {
+    var hasKey = data.data && data.data.credential_present;
+    var keyExported = localStorage.getItem("qvac_key_exported");
+
+    // 密钥存在且已导出 → 放行
+    if (hasKey && keyExported) {
+      _keySetupDone = true;
+      document.getElementById("key-setup-overlay").classList.add("hidden");
+      return;
+    }
+
+    _keySetupRunning = true;
+
+    var overlay = document.getElementById("key-setup-overlay");
+    var msgEl = document.getElementById("key-setup-msg");
+    var errEl = document.getElementById("key-setup-error");
+    var successDiv = document.getElementById("key-setup-success");
+    var hexEl = document.getElementById("key-setup-hex");
+    var retryBtn = document.getElementById("key-setup-retry-btn");
+    var downloadBtn = document.getElementById("key-setup-download-btn");
+    var doneBtn = document.getElementById("key-setup-done-btn");
+
+    overlay.classList.remove("hidden");
+
+    if (hasKey && !keyExported) {
+      // 密钥存在但未导出 → 直接获取恢复密钥，强制导出
+      var exportResp = await fetch(BACKEND_URL + "/api/v1/system/credential/export");
+      var exportData = await exportResp.json();
+
+      if (exportData.code === 100 && exportData.data) {
+        msgEl.textContent = t("keysetup.success");
+        hexEl.textContent = exportData.data.recovery_key_hex;
+        successDiv.style.display = "block";
+        errEl.style.display = "none";
+        retryBtn.style.display = "none";
+
+        downloadBtn.onclick = function () {
+          var blob = new Blob([exportData.data.recovery_key_hex], { type: "text/plain" });
+          var url = URL.createObjectURL(blob);
+          var a = document.createElement("a");
+          a.href = url;
+          a.download = exportData.data.save_as || "safe_recovery.key";
+          a.click();
+          URL.revokeObjectURL(url);
+          localStorage.setItem("qvac_key_exported", "1");
+          showToast(t("keysetup.downloaded"), "success");
+        };
+
+        doneBtn.onclick = function () {
+          if (!localStorage.getItem("qvac_key_exported")) {
+            showToast(t("keysetup.warning"), "error");
+            return;
+          }
+          _keySetupDone = true;
+          _keySetupRunning = false;
+          overlay.classList.add("hidden");
+          if (!currentSessionId) initSession();
+          loadSystemState();
+        };
+      } else {
+        // 导出失败 — 降级为非阻塞
+        _keySetupDone = true;
+        _keySetupRunning = false;
+        overlay.classList.add("hidden");
         showSetupModal();
       }
+      return;
     }
-  } catch (_) {}
+
+    // 密钥缺失 — 尝试自动初始化
+    msgEl.textContent = t("keysetup.checking");
+
+    var initResp = await fetch(BACKEND_URL + "/api/v1/system/credential/init", { method: "POST" });
+    var initData = await initResp.json();
+
+    if (initData.code === 100 && initData.data) {
+      // 初始化成功 — 显示恢复密钥
+      msgEl.textContent = initData.message;
+      hexEl.textContent = initData.data.recovery_key_hex;
+      successDiv.style.display = "block";
+      errEl.style.display = "none";
+      retryBtn.style.display = "none";
+
+      downloadBtn.onclick = function () {
+        var blob = new Blob([initData.data.recovery_key_hex], { type: "text/plain" });
+        var url = URL.createObjectURL(blob);
+        var a = document.createElement("a");
+        a.href = url;
+        a.download = initData.data.save_as || "safe_recovery.key";
+        a.click();
+        URL.revokeObjectURL(url);
+        localStorage.setItem("qvac_key_exported", "1");
+        showToast(t("keysetup.downloaded"), "success");
+      };
+
+      doneBtn.onclick = function () {
+        if (!localStorage.getItem("qvac_key_exported")) {
+          showToast(t("keysetup.warning"), "error");
+          return;
+        }
+        _keySetupDone = true;
+        _keySetupRunning = false;
+        overlay.classList.add("hidden");
+        if (!currentSessionId) initSession();
+        loadSystemState();
+      };
+    } else {
+      // 初始化失败 (keyring 不可用)
+      msgEl.textContent = t("keysetup.errorKeyring");
+      errEl.textContent = initData.message || t("keysetup.errorGeneric");
+      errEl.style.display = "block";
+      successDiv.style.display = "none";
+      retryBtn.style.display = "inline-block";
+
+      retryBtn.onclick = function () {
+        _keySetupRunning = false;
+        errEl.style.display = "none";
+        retryBtn.style.display = "none";
+        successDiv.style.display = "none";
+        checkKeyMandatory();
+      };
+    }
+  } catch (_) {
+    _keySetupRunning = false;
+    // 后端未就绪 — 等下一轮 checkHealth 重试
+  }
 }
 
 async function showSetupModal() {
@@ -1014,9 +1174,215 @@ async function sendMessage() {
   sendBtn.disabled = false;
   chatInput.focus();
   chatMessages.scrollTop = chatMessages.scrollHeight;
+
+  // 为 AI 回复添加 TTS 播放按钮
+  var finalText = fullText || "";
+  if (finalText && finalText !== "..." && finalText !== t("chat.emptyResponse")
+      && finalText.indexOf("[" + t("misc.connectionError") + "]") !== 0
+      && finalText.indexOf("[" + t("misc.error") + "]") !== 0) {
+    var ttsBtn = document.createElement("button");
+    ttsBtn.className = "message-tts-btn";
+    ttsBtn.innerHTML = ICONS.volume2 + ' ' + t("chat.ttsPlay");
+    ttsBtn.onclick = function () { toggleChatTTS(ttsBtn, finalText); };
+    assistantBubble.querySelector(".message-body").appendChild(ttsBtn);
+  }
 }
 
 // ---- TTS 控制 ----
+var _ttsAudioCtx = null;
+var _ttsSource = null;
+var _ttsPlaying = false;
+var _ttsChatBtn = null;
+var _ttsAbortRequested = false;
+var _ttsPlayPromise = null;
+
+function _getAudioCtx() {
+  if (!_ttsAudioCtx) {
+    _ttsAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  }
+  if (_ttsAudioCtx.state === "suspended") {
+    _ttsAudioCtx.resume();
+  }
+  return _ttsAudioCtx;
+}
+
+async function playTTS(text, voice, speed) {
+  var chatBtn = _ttsChatBtn;
+  stopTTS();
+  _ttsChatBtn = chatBtn;
+  _ttsAbortRequested = false;
+
+  // 显示加载状态
+  _updateTTSPlayBtn("loading");
+  if (_ttsChatBtn) {
+    _ttsChatBtn.classList.add("loading");
+    _ttsChatBtn.innerHTML = ICONS.loader + ' ' + t("chat.ttsGenerating");
+    _ttsChatBtn.disabled = true;
+  }
+  showToast(t("toast.ttsGenerating"), "");
+
+  _ttsPlayPromise = (async function () {
+    try {
+      var resp = await fetch(BACKEND_URL + "/api/v1/tts/stream", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: text, voice_model: voice, speed: speed }),
+      });
+      if (_ttsAbortRequested) { _cleanupTTS(); return false; }
+      if (!resp.ok) {
+        var errMsg = t("toast.ttsFail") + resp.status;
+        try {
+          var errData = await resp.json();
+          if (errData.message) errMsg = errData.message;
+        } catch (_) {}
+        showToast(errMsg, "error");
+        _cleanupTTS();
+        return false;
+      }
+      var audioData = await resp.arrayBuffer();
+      if (_ttsAbortRequested) { _cleanupTTS(); return false; }
+      if (!audioData || audioData.byteLength === 0) {
+        showToast(t("toast.ttsUnavailable"), "error");
+        _cleanupTTS();
+        return false;
+      }
+      var ctx = _getAudioCtx();
+      var buffer = await ctx.decodeAudioData(audioData.slice(0));
+      if (_ttsAbortRequested) { _cleanupTTS(); return false; }
+      _ttsSource = ctx.createBufferSource();
+      _ttsSource.buffer = buffer;
+      _ttsSource.connect(ctx.destination);
+      _ttsSource.onended = function () {
+        _ttsPlaying = false;
+        _ttsPlayPromise = null;
+        _updateTTSPlayBtn("idle");
+        if (_ttsChatBtn) {
+          _ttsChatBtn.classList.remove("playing", "loading");
+          _ttsChatBtn.disabled = false;
+          _ttsChatBtn.innerHTML = ICONS.volume2 + ' ' + t("chat.ttsPlay");
+          _ttsChatBtn = null;
+        }
+      };
+      _ttsSource.start(0);
+      _ttsPlaying = true;
+      _updateTTSPlayBtn("playing");
+      if (_ttsChatBtn) {
+        _ttsChatBtn.classList.remove("loading");
+        _ttsChatBtn.classList.add("playing");
+        _ttsChatBtn.disabled = false;
+        _ttsChatBtn.innerHTML = ICONS.stop + ' ' + t("chat.ttsStop");
+      }
+      return true;
+    } catch (err) {
+      if (_ttsChatBtn) {
+        _ttsChatBtn.classList.remove("playing", "loading");
+        _ttsChatBtn.disabled = false;
+        _ttsChatBtn.innerHTML = ICONS.volume2 + ' ' + t("chat.ttsPlay");
+        _ttsChatBtn = null;
+      }
+      showToast(t("toast.ttsError") + err.message, "error");
+      _cleanupTTS();
+      return false;
+    }
+  })();
+  return _ttsPlayPromise;
+}
+
+function _cleanupTTS() {
+  if (_ttsSource) {
+    try { _ttsSource.stop(0); } catch (_) {}
+    _ttsSource.disconnect();
+    _ttsSource = null;
+  }
+  _ttsPlaying = false;
+  _ttsPlayPromise = null;
+  _updateTTSPlayBtn("idle");
+  if (_ttsChatBtn) {
+    _ttsChatBtn.classList.remove("playing", "loading");
+    _ttsChatBtn.disabled = false;
+    _ttsChatBtn.innerHTML = ICONS.volume2 + ' ' + t("chat.ttsPlay");
+    _ttsChatBtn = null;
+  }
+}
+
+function stopTTS() {
+  _ttsAbortRequested = true;
+  _cleanupTTS();
+  fetch(BACKEND_URL + "/api/v1/tts/abort", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action: "destroy_handler" }),
+  }).catch(function () {});
+}
+
+function _updateTTSPlayBtn(state) {
+  var btn = document.getElementById("tts-play-btn");
+  if (!btn) return;
+  btn.classList.remove("loading");
+  btn.disabled = false;
+  if (state === "playing") {
+    btn.innerHTML = "&#9646;&#9646;";
+  } else if (state === "loading") {
+    btn.innerHTML = "&#8635;";
+    btn.classList.add("loading");
+    btn.disabled = true;
+  } else {
+    btn.innerHTML = "&#9654;";
+  }
+}
+
+// ---- 文档 TTS 弹窗 ----
+var _ttsDocFileId = null;
+
+function openTTSModal(fileId, docName) {
+  _ttsDocFileId = fileId;
+  document.getElementById("tts-modal-doc-name").textContent = docName;
+  document.getElementById("tts-modal").classList.remove("hidden");
+  _updateTTSPlayBtn("idle");
+}
+
+function closeTTSModal() {
+  stopTTS();
+  document.getElementById("tts-modal").classList.add("hidden");
+  _ttsDocFileId = null;
+}
+
+async function startDocTTS() {
+  if (_ttsPlaying || _ttsPlayPromise) {
+    stopTTS();
+    return;
+  }
+  if (!_ttsDocFileId) return;
+  try {
+    showToast(t("toast.ttsLoading"), "");
+    var resp = await fetch(BACKEND_URL + "/api/v1/knowledge/document/" + _ttsDocFileId + "/content");
+    var data = await resp.json();
+    if (data.code !== 100 || !data.data || !data.data.content) {
+      showToast(t("toast.ttsNoContent"), "error");
+      return;
+    }
+    var text = data.data.content.substring(0, 5000);
+    var voice = document.getElementById("tts-voice-select").value;
+    var speed = parseFloat(document.getElementById("tts-speed-select").value);
+    await playTTS(text, voice, speed);
+  } catch (err) {
+    showToast(t("toast.ttsError") + err.message, "error");
+  }
+}
+
+// ---- 对话 TTS (无弹窗) ----
+function toggleChatTTS(btn, text) {
+  if (_ttsPlaying && _ttsChatBtn === btn) {
+    stopTTS();
+    return;
+  }
+  if (_ttsPlaying) {
+    stopTTS();
+  }
+  _ttsChatBtn = btn;
+  playTTS(text, "style_1", 1.1);
+}
+
 // ---- 消息渲染 ----
 function appendMessage(role, content, messageId, isTruncated, isStreaming) {
   var div = document.createElement("div");
@@ -1042,6 +1408,16 @@ function appendMessage(role, content, messageId, isTruncated, isStreaming) {
 
   body.appendChild(roleLabel);
   body.appendChild(contentEl);
+
+  // 为历史 AI 回复添加 TTS 播放按钮
+  if (role === "assistant" && content && !isStreaming) {
+    var ttsBtn = document.createElement("button");
+    ttsBtn.className = "message-tts-btn";
+    ttsBtn.innerHTML = ICONS.volume2 + ' ' + t("chat.ttsPlay");
+    ttsBtn.onclick = function () { toggleChatTTS(ttsBtn, content); };
+    body.appendChild(ttsBtn);
+  }
+
   div.appendChild(avatar);
   div.appendChild(body);
   chatMessages.appendChild(div);
@@ -1315,7 +1691,8 @@ function renderFileActions(f) {
     var sel = (f.folder_id === fl.folder_id) ? " selected" : "";
     folderOpts += '<option value="' + fl.folder_id + '"' + sel + '>' + escapeHtml(fl.name) + '</option>';
   });
-  return '<button class="btn btn-tiny" onclick="downloadDocument(\'' + f.file_id + '\')" title="' + t("kb.downloadTitle") + '">' + t("kb.download") + '</button>' +
+  return '<button class="kb-tts-btn" onclick="event.stopPropagation();openTTSModal(\'' + f.file_id + '\',\'' + escapeHtml(f.file_name).replace(/'/g, "\\'") + '\')" title="' + t("kb.ttsDocTitle") + '">' + ICONS.volume2 + '</button>' +
+    '<button class="btn btn-tiny" onclick="downloadDocument(\'' + f.file_id + '\')" title="' + t("kb.downloadTitle") + '">' + t("kb.download") + '</button>' +
     '<select class="export-select" onchange="exportDocument(\'' + f.file_id + '\',this.value);this.value=\'\'">' +
       '<option value="">' + t("kb.export") + '</option>' +
       '<option value="txt">TXT</option>' +
@@ -1933,6 +2310,38 @@ document.getElementById("gen-mnemonic-btn").addEventListener("click", async func
   } catch (_) {}
 });
 
+// ---- 清理所有数据 ----
+document.getElementById("clear-all-btn").addEventListener("click", function () {
+  showConfirm(t("settings.dataCleanup"), t("settings.clearAllDesc"), async function () {
+    try {
+      var resp = await fetch(BACKEND_URL + "/api/v1/system/clear-all", { method: "POST" });
+      var data = await resp.json();
+      if (data.code === 100) {
+        showToast(t("toast.clearAllSuccess"), "success");
+        // 清空聊天 UI
+        currentSessionId = null;
+        chatMessages.innerHTML = '<div class="chat-placeholder"><div class="placeholder-icon"><svg viewBox="0 0 24 24" width="48" height="48"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" fill="currentColor" opacity="0.3"/></svg></div><p>' + t("chat.emptyTitle") + '</p><p class="sub-text">' + t("chat.emptySub") + '</p></div>';
+        document.getElementById("session-list").innerHTML = "";
+        // 刷新知识库列表
+        if (typeof loadKnowledgeList === "function") loadKnowledgeList();
+        // 创建新会话
+        initSession();
+      } else {
+        showToast(data.message || t("toast.clearAllFail"), "error");
+      }
+    } catch (_) {
+      showToast(t("toast.clearAllReqFail"), "error");
+    }
+  });
+});
+
+// ---- TTS 弹窗事件 ----
+document.getElementById("tts-play-btn").addEventListener("click", startDocTTS);
+document.getElementById("tts-stop-btn").addEventListener("click", function () { stopTTS(); });
+document.getElementById("tts-close-btn").addEventListener("click", closeTTSModal);
+// 点击遮罩关闭
+document.querySelector("#tts-modal .modal-mask").addEventListener("click", closeTTSModal);
+
 // ---- Kill Switch 覆层检测 ----
 async function checkLockState() {
   try {
@@ -2456,6 +2865,21 @@ document.getElementById("setting-theme-toggle").addEventListener("change", funct
     });
   }
 })();
+
+// ---- 窗口关闭清理 (TTS 音频 + AudioContext) ----
+window.addEventListener("beforeunload", function () {
+  if (_ttsSource) {
+    try { _ttsSource.stop(0); } catch (_) {}
+    _ttsSource.disconnect();
+    _ttsSource = null;
+  }
+  if (_ttsAudioCtx) {
+    try { _ttsAudioCtx.close(); } catch (_) {}
+    _ttsAudioCtx = null;
+  }
+  _ttsPlaying = false;
+  _ttsPlayPromise = null;
+});
 
 // ---- 初始化 ----
 applyLanguage(currentLang);

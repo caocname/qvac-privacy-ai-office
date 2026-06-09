@@ -673,6 +673,10 @@ svg.lucide, .folder-icon svg, .chat-docs-dropdown-item svg {
   font-size: 12px; color: var(--accent); font-weight: 500;
 }
 .security-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.setting-desc {
+  font-size: 13px; line-height: 1.6; color: var(--text-muted);
+  margin: 0; padding: 0;
+}
 
 /* ---- 主题切换开关 ---- */
 .theme-toggle-row {
@@ -771,6 +775,17 @@ svg.lucide, .folder-icon svg, .chat-docs-dropdown-item svg {
 .overlay.hidden { display: none; }
 .overlay-content p {
   color: #EF4444; font-size: 18px; font-weight: 600; text-align: center;
+}
+.overlay-content-wide {
+  background: var(--bg-secondary); border: var(--border-width) solid var(--border);
+  border-radius: var(--radius); padding: 32px 36px; max-width: 520px; width: 90%;
+  box-shadow: var(--shadow-lg);
+}
+.overlay-content-wide h2 {
+  font-size: 18px; font-weight: 600; color: var(--text-primary); margin-bottom: 12px;
+}
+.overlay-content-wide p {
+  color: var(--text-muted); font-size: 13px; font-weight: 400; text-align: left; line-height: 1.6;
 }
 
 /* =================================================================
@@ -1022,6 +1037,66 @@ svg.lucide, .folder-icon svg, .chat-docs-dropdown-item svg {
 /* =================================================================
    响应式最小分辨率警告
    ================================================================= */
+/* =================================================================
+   TTS 语音播放
+   ================================================================= */
+.tts-dialog { max-width: 420px; }
+.tts-doc-name {
+  font-size: 13px; color: var(--text-secondary); margin-bottom: 16px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.tts-controls {
+  display: flex; gap: 12px; justify-content: center; margin-bottom: 18px;
+}
+.tts-btn {
+  width: 52px; height: 52px; border-radius: 50%; font-size: 22px;
+  display: flex; align-items: center; justify-content: center;
+  padding: 0; line-height: 1;
+}
+.tts-settings { margin-bottom: 18px; }
+.tts-setting-row {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 10px; font-size: 13px;
+}
+.tts-setting-row label { color: var(--text-secondary); }
+.tts-setting-row select { width: 160px; }
+
+/* 消息上的 TTS 播放按钮 */
+.message-tts-btn {
+  display: inline-flex; align-items: center; gap: 4px;
+  margin-top: 6px; padding: 3px 10px;
+  font-size: 12px; font-weight: 600;
+  border: var(--border-width) solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-tertiary); color: var(--text-secondary);
+  cursor: pointer;
+  transition: border-color var(--transition-linear), background var(--transition-linear), color var(--transition-linear);
+  user-select: none;
+}
+.message-tts-btn:hover { border-color: var(--accent); color: var(--accent); background: var(--accent-bg); }
+.message-tts-btn.playing { border-color: var(--error); color: var(--error); background: var(--error-bg); }
+.message-tts-btn.loading { border-color: var(--accent); color: var(--accent); background: var(--accent-bg); opacity: 0.7; }
+.message-tts-btn svg { flex-shrink: 0; }
+
+@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+.spin-icon { animation: spin 1s linear infinite; }
+.tts-btn.loading { opacity: 0.6; pointer-events: none; }
+.tts-btn.loading .spin-icon { display: inline-block; }
+
+/* 知识库文档 TTS 按钮 */
+.kb-tts-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 28px; height: 26px; padding: 0;
+  font-size: 14px; font-weight: 600;
+  border: var(--border-width) solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-tertiary); color: var(--text-secondary);
+  cursor: pointer;
+  transition: border-color var(--transition-linear), color var(--transition-linear);
+  vertical-align: middle;
+}
+.kb-tts-btn:hover { border-color: var(--accent); color: var(--accent); }
+
 @media (max-width: 900px), (max-height: 600px) {
   body::after {
     content: "最低支持分辨率: 1280 × 720";
