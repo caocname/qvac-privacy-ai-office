@@ -42,7 +42,17 @@
 - **演示视频**: [https://youtu.be/sHkjUeodIdg](https://youtu.be/sHkjUeodIdg)（YouTube 非公开），展示项目完整运行效果，时长 ≤ 5 分钟
 - **系统资源时序日志**: 包含在 `审计日志/audit-log-full.json` 中，每条记录含 `absolute_datetime` 和 `relative_timestamp_ms`，时间轴误差 ≤ 500ms
 - **硬件运行证明**: 见 `审计日志/hardware_snapshot.json` 及 `项目复现指南.md` 第 2 节
-- **项目源码**: 完整源码托管于 [GitHub](https://github.com/caocname/qvachackstext)，基于 Apache 2.0 开源
+- **项目源码**: 完整源码托管于 [GitHub](https://github.com/caocname/qvac-privacy-ai-office)，基于 Apache 2.0 开源
+
+---
+
+## 赛事提交审计日志
+
+完整运行性能日志、硬件资源时序日志打包文件：`./qvac-submission.zip`
+
+日志时间戳与 YouTube 演示视频（[https://youtu.be/sHkjUeodIdg](https://youtu.be/sHkjUeodIdg)）画面完全一一对应，包含 RAG/ASR/TTS 全链路推理审计记录。
+
+开源协议：Apache 2.0
 
 ---
 
