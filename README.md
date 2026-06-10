@@ -39,7 +39,7 @@
 
 ### 额外说明
 
-- **演示视频**: 另附（YouTube 非公开链接），展示项目完整运行效果，时长 ≤ 5 分钟
+- **演示视频**: [https://youtu.be/sHkjUeodIdg](https://youtu.be/sHkjUeodIdg)（YouTube 非公开），展示项目完整运行效果，时长 ≤ 5 分钟
 - **系统资源时序日志**: 包含在 `审计日志/audit-log-full.json` 中，每条记录含 `absolute_datetime` 和 `relative_timestamp_ms`，时间轴误差 ≤ 500ms
 - **硬件运行证明**: 见 `审计日志/hardware_snapshot.json` 及 `项目复现指南.md` 第 2 节
 - **项目源码**: 完整源码托管于 [GitHub](https://github.com/caocname/qvachackstext)，基于 Apache 2.0 开源
