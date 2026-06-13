@@ -516,6 +516,8 @@ svg.lucide, .folder-icon svg, .chat-docs-dropdown-item svg {
 .message-actions { display: flex; gap: 6px; margin-top: 6px; }
 .message-actions .btn-tiny { font-size: 11px; padding: 2px 6px; }
 .truncation-tag { display: block; font-size: 11px; color: var(--text-muted); margin-top: 6px; }
+.truncation-archive-tag { font-style: italic; color: #b03a3a; opacity: 0.85; }
+.message-truncated { transition: opacity 0.4s ease; }
 
 @keyframes blink { 50% { opacity: 0; } }
 @keyframes fadeIn {

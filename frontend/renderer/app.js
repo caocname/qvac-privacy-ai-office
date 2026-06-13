@@ -56,6 +56,7 @@ const I18N = {
   "chat.assistantRole":    { zh: "助手", en: "Assistant" },
   "chat.emptyResponse":    { zh: "(空响应)", en: "(Empty response)" },
   "chat.truncatedTag":     { zh: "[已自动归档早期历史记忆]", en: "[Early history auto-archived]" },
+  "chat.truncatedArchiveTag": { zh: "[已归档·不再参与推理]", en: "[Archived · excluded from context]" },
   "chat.loadedDoc":        { zh: "已加载文档: ", en: "Loaded document: " },
   "chat.loadedDocSub":     { zh: "文档全文已注入 AI 上下文，可直接提问", en: "Full text injected into AI context. You can ask questions directly." },
   "chat.noDocs":           { zh: "暂无文档，请先上传", en: "No documents. Please upload first." },
@@ -1145,10 +1146,28 @@ async function sendMessage() {
             fullText = chunk.full_text || fullText;
             contentEl.textContent = fullText;
             if (chunk.memory_truncated) {
+              // 1) 在当前 AI 气泡末尾加微型提示标签
               var tag = document.createElement("span");
               tag.className = "truncation-tag";
               tag.textContent = t("chat.truncatedTag");
               contentEl.appendChild(tag);
+
+              // 2) 严格按 truncated_message_ids 灰化历史气泡（原型文档 §4.2）
+              var ids = chunk.truncated_message_ids || [];
+              for (var k = 0; k < ids.length; k++) {
+                var bubble = chatMessages.querySelector('[data-message-id="' + ids[k] + '"]');
+                if (bubble) {
+                  bubble.style.opacity = "0.4";
+                  bubble.classList.add("message-truncated");
+                  if (!bubble.querySelector(".truncation-archive-tag")) {
+                    var archTag = document.createElement("span");
+                    archTag.className = "truncation-tag truncation-archive-tag";
+                    archTag.textContent = t("chat.truncatedArchiveTag");
+                    var bodyEl = bubble.querySelector(".message-body") || bubble;
+                    bodyEl.appendChild(archTag);
+                  }
+                }
+              }
             }
             contentEl.classList.remove("streaming");
           } else if (chunk.token) {

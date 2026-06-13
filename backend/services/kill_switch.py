@@ -186,6 +186,22 @@ class KillSwitch:
         self._tts_buffer.clear()
         self._asr_queue.clear()
 
+        # 强切所有运行中的 ASR 异步任务，写入 INTERRUPTED_BY_COMPLIANCE_LOCK
+        # — 严格对齐技术文档 §3.2 伪代码 step5
+        try:
+            from backend.api.asr import mark_all_running_as_interrupted
+            interrupted_count = mark_all_running_as_interrupted()
+            if interrupted_count:
+                logger.log(LogType.KILL_SWITCH, {
+                    "event": "asr_tasks_interrupted",
+                    "count": interrupted_count,
+                })
+        except Exception as exc:
+            logger.log(LogType.ERROR, {
+                "event": "asr_interrupt_mark_failed",
+                "error_class": type(exc).__name__,
+            }, str(exc))
+
         state_mgr.transition(StateCode.NETWORK_LOCKED)
 
         try:

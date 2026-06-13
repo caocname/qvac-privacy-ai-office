@@ -58,20 +58,58 @@ async def lifespan(app: FastAPI):
     ks.start()
 
     # 自动发现并注册 Bridge 进程 PID (监听 127.0.0.1:18889 的 node 进程)
+    # 同时审计 Bridge 监听地址，验证「仅绑定 127.0.0.1，禁止公网/局域网外联」R-01 离线合规铁律。
     import psutil
+    bridge_bind_summary: list[dict] = []
     for proc in psutil.process_iter(['pid', 'name']):
         try:
             if proc.info['name'] and 'node' in proc.info['name'].lower():
+                listening = []
+                bridge_match = False
                 for conn in proc.connections(kind='inet'):
-                    if conn.laddr and conn.laddr.port == 18889:
-                        ks.register_bridge_pid(proc.pid)
-                        logger.log(LogType.SYSTEM, {
-                            "event": "bridge_pid_registered",
-                            "bridge_pid": proc.pid,
+                    # 收集所有 LISTEN 状态的本进程绑定情况
+                    if conn.status == psutil.CONN_LISTEN and conn.laddr:
+                        listening.append({
+                            "ip": conn.laddr.ip if hasattr(conn.laddr, 'ip') else conn.laddr[0],
+                            "port": conn.laddr.port if hasattr(conn.laddr, 'port') else conn.laddr[1],
                         })
-                        break
+                    if conn.laddr and conn.laddr.port == 18889:
+                        bridge_match = True
+                if bridge_match:
+                    ks.register_bridge_pid(proc.pid)
+                    # 复合事件：PID 注册 + 启动绑定审计
+                    bridge_listen_addrs = [l for l in listening if l["port"] == 18889]
+                    is_loopback_only = all(
+                        l["ip"].startswith(("127.", "::1", "0:0:0:0:0:0:0:1"))
+                        for l in bridge_listen_addrs
+                    ) and len(bridge_listen_addrs) > 0
+                    logger.log(LogType.SECURITY, {
+                        "event": "bridge_bind_audit",
+                        "bridge_pid": proc.pid,
+                        "listen_addrs": bridge_listen_addrs,
+                        "loopback_only": is_loopback_only,
+                        "compliance": "R-01_pass" if is_loopback_only else "R-01_VIOLATION",
+                    })
+                    logger.log(LogType.SYSTEM, {
+                        "event": "bridge_pid_registered",
+                        "bridge_pid": proc.pid,
+                    })
+                    bridge_bind_summary.append({
+                        "pid": proc.pid,
+                        "loopback_only": is_loopback_only,
+                        "addrs": bridge_listen_addrs,
+                    })
+                    break
         except (psutil.NoSuchProcess, psutil.AccessDenied):
             continue
+
+    if not bridge_bind_summary:
+        # Bridge 暂未启动也写一条审计，便于评审追溯
+        logger.log(LogType.SECURITY, {
+            "event": "bridge_bind_audit",
+            "status": "bridge_not_running_yet",
+            "note": "若 Bridge 由 Electron 主进程启动，PID 注册将由 Kill Switch 守护线程后续重试。",
+        })
 
     logger.log(LogType.SYSTEM, {"event": "kill_switch_started"})
 

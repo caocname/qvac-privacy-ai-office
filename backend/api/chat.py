@@ -21,6 +21,8 @@ from backend.config import (
     TASK_SUMMARIZE_PROMPT,
     TASK_LOOKUP_PROMPT,
     TASK_GENERAL_PROMPT,
+    COMPLIANCE_BLOCKED_KEYWORDS,
+    COMPLIANCE_BLOCKED_RESPONSE,
 )
 from backend.state_machine import StateCode, get_state_manager
 
@@ -158,6 +160,54 @@ async def send_message(req: ChatRequest):
     logger = get_audit_logger()
     context_mgr = ContextManager()
 
+    # 违规提问前置关键词拦截 — PRD §4.1 / TRD §2.8
+    msg_lower_check = req.message.lower()
+    matched_kw: str | None = None
+    for kw in COMPLIANCE_BLOCKED_KEYWORDS:
+        if kw.lower() in msg_lower_check:
+            matched_kw = kw
+            break
+    if matched_kw is not None:
+        # 仍保存用户消息，便于审计回溯
+        user_msg_id = SessionManager.append_message(req.session_id, "user", req.message)
+        assistant_msg_id = SessionManager.append_message(
+            req.session_id, "assistant", COMPLIANCE_BLOCKED_RESPONSE,
+        )
+        logger.log(LogType.SECURITY, {
+            "event": "compliance_keyword_blocked",
+            "session_id": req.session_id,
+            "matched_keyword": matched_kw,
+            "user_msg_id": user_msg_id,
+        }, req.message[:200])
+
+        # 单一 SSE 数据帧返回兜底话术，前端流式渲染逻辑可复用
+        async def _blocked_stream():
+            done_payload = json.dumps({
+                "done": True,
+                "message_id": assistant_msg_id,
+                "full_text": COMPLIANCE_BLOCKED_RESPONSE,
+                "memory_truncated": False,
+                "truncated_message_ids": [],
+                "stats": {"tokens_per_second": 0, "total_tokens": 0, "total_duration_ms": 0},
+                "blocked_by_compliance": True,
+            })
+            yield f"data: {done_payload}\n\n"
+
+        return StreamingResponse(
+            _blocked_stream(),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+                "X-Accel-Buffering": "no",
+                "X-Compliance-Blocked": "1",
+            },
+        )
+
+    # 用 QVAC SDK Tokenizer 精确刷新 System Prompt token 数（首次会调一次 SDK，
+    # 命中 Bridge 缓存后开销极低；Bridge 不可用时无副作用，使用经验公式）
+    await context_mgr.refresh_system_tokens()
+
     # 1. 保存用户消息
     user_msg_id = SessionManager.append_message(req.session_id, "user", req.message)
 
@@ -262,24 +312,35 @@ async def send_message(req: ChatRequest):
 
     # 3. 构建上下文窗口
     history = SessionManager.get_history(req.session_id)
+
+    # 优先使用 QVAC SDK BPE Tokenizer 精确计数（技术文档 §2.2 硬性要求）
+    history_contents = [h["content"] for h in history[:-1]]
+    history_token_counts = await ContextManager.estimate_tokens_batch_async(history_contents) \
+        if history_contents else []
+    current_tokens = await ContextManager.estimate_tokens_async(req.message)
+
     history_messages = [
         ChatMessage(
             message_id=h["message_id"],
             role=h["role"],
             content=h["content"],
-            token_count=ContextManager.estimate_tokens(h["content"]),
+            token_count=history_token_counts[i] if i < len(history_token_counts) else 0,
         )
-        for h in history[:-1]  # 排除刚保存的用户消息
+        for i, h in enumerate(history[:-1])  # 排除刚保存的用户消息
     ]
 
     current_msg = ChatMessage(
         message_id=user_msg_id,
         role="user",
         content=req.message,
-        token_count=ContextManager.estimate_tokens(req.message),
+        token_count=current_tokens,
     )
 
-    rag_topk_tokens = sum(ContextManager.estimate_tokens(c) for c in rag_chunks)
+    # RAG 片段同样走精确计数
+    rag_topk_tokens = 0
+    if rag_chunks:
+        rag_token_counts = await ContextManager.estimate_tokens_batch_async(rag_chunks)
+        rag_topk_tokens = sum(rag_token_counts)
 
     assembly = context_mgr.assemble(history_messages, current_msg, rag_chunks, rag_topk_tokens)
 

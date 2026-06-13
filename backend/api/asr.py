@@ -27,6 +27,74 @@ router = APIRouter(prefix="/api/v1/asr", tags=["asr"])
 _asr_tasks: dict[str, dict] = {}
 _asr_executor = ThreadPoolExecutor(max_workers=1)
 
+# Kill Switch 触发后的中断标记 — 与技术文档 §3.2 伪代码 step5 对齐
+INTERRUPTED_TEXT = "INTERRUPTED_BY_COMPLIANCE_LOCK"
+
+
+def mark_all_running_as_interrupted() -> int:
+    """将所有在跑 ASR 任务标记为合规锁定中断 (Kill Switch 调用)。
+
+    1. 内存任务表中未 completed 的任务全部置为已完成 + 中断文本
+    2. asr_archive 表插入一条占位记录（archive_id 与 task_id 关联），
+       便于 startup_guard 冷启动扫描 `INTERRUPTED%` 前缀。
+
+    返回被标记的任务数。
+    """
+    if not _asr_tasks:
+        return 0
+
+    db = DatabaseManager.get_instance()
+    cipher = db.cipher
+    enc_text = cipher.encrypt(INTERRUPTED_TEXT) if cipher else INTERRUPTED_TEXT
+
+    marked = 0
+    for task_id, task in list(_asr_tasks.items()):
+        if task.get("completed"):
+            continue
+        task["completed"] = True
+        task["progress_percent"] = 100.0
+        task["remaining_time_s"] = 0.0
+        task["transcribed_text"] = INTERRUPTED_TEXT
+
+        # 占位归档 — 若已被 _do_transcribe 写入则跳过
+        archive_id = task.get("archive_id")
+        if not archive_id:
+            archive_id = f"arc-{uuid.uuid4().hex[:12]}"
+            task["archive_id"] = archive_id
+            try:
+                db.conn.execute(
+                    "INSERT INTO asr_archive (archive_id, task_id, audio_name, audio_path, duration, transcribed_text) "
+                    "VALUES (?, ?, ?, ?, ?, ?)",
+                    (
+                        archive_id,
+                        task_id,
+                        f"interrupted-{task_id}",
+                        "",
+                        float(task.get("duration", 0.0)),
+                        enc_text,
+                    ),
+                )
+            except Exception:
+                pass
+        else:
+            # 已落档但任务被强切 — UPDATE 覆盖
+            try:
+                db.conn.execute(
+                    "UPDATE asr_archive SET transcribed_text = ? WHERE task_id = ?",
+                    (enc_text, task_id),
+                )
+            except Exception:
+                pass
+        marked += 1
+
+    if marked:
+        try:
+            db.conn.commit()
+        except Exception:
+            pass
+
+    return marked
+
 
 class ASRSubmitRequest(BaseModel):
     api_version: str = "v1"

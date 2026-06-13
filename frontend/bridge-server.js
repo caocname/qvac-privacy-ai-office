@@ -106,6 +106,20 @@ function readBody(req) {
   });
 }
 
+// 回退式 BPE 近似计数 — SDK 调用失败时使用。
+// Llama 3.x 词表对中文约 1.55 char/token，对 ASCII 约 3.7 char/token。
+function _fallbackTokenCount(text) {
+  if (!text) return 0;
+  let cnChars = 0, asciiChars = 0, otherChars = 0;
+  for (const c of text) {
+    const cp = c.codePointAt(0) || 0;
+    if (cp >= 0x4e00 && cp <= 0x9fff) cnChars++;
+    else if (cp >= 0x20 && cp <= 0x7e) asciiChars++;
+    else otherChars++;
+  }
+  return Math.ceil(cnChars / 1.55) + Math.ceil(asciiChars / 3.7) + Math.ceil(otherChars / 2.0) + 1;
+}
+
 // ---- HTTP Server ----
 async function handleRequest(req, res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
@@ -237,6 +251,46 @@ async function handleRequest(req, res) {
   if (url.pathname === "/api/llm/abort" && req.method === "POST") {
     try { await sdkModule.cancel({ operation: "inference", modelId: llmModelId }); } catch {}
     return json(res, 200, { status: "aborted" });
+  }
+
+  // ---- LLM Tokenize (Real BPE token count via QVAC SDK) ----
+  // 通过 SDK completion(predict:1, stream:false) 触发 Llama BPE tokenizer
+  // 返回 final.stats.promptTokens 作为真实 token 数。
+  // 严格对齐技术文档 §2.2「实时调用 QVAC SDK 的 Tokenizer 接口动态计算」。
+  if (url.pathname === "/api/llm/tokenize" && req.method === "POST") {
+    if (!llmModelId) return json(res, 503, { error: "LLM model not loaded" });
+    const body = await readBody(req);
+    const texts = Array.isArray(body.texts) ? body.texts : (body.text ? [body.text] : []);
+    if (!texts.length) return json(res, 400, { error: "texts is required" });
+    try {
+      const counts = [];
+      for (const text of texts) {
+        if (!text) { counts.push(0); continue; }
+        const run = sdkModule.completion({
+          modelId: llmModelId,
+          history: [{ role: "user", content: String(text) }],
+          stream: false,
+          generationParams: { predict: 1, temp: 0.0 },
+        });
+        // 消费事件流以触发 final
+        try { for await (const _ of run.events) { /* drain */ } } catch (_) {}
+        const final = await run.final;
+        const stats = final && final.stats ? final.stats : {};
+        // SDK 字段命名兼容：promptTokens / prompt_tokens / totalTokens
+        const promptTokens = stats.promptTokens || stats.prompt_tokens
+          || (stats.totalTokens && stats.generatedTokens ? (stats.totalTokens - stats.generatedTokens) : null);
+        if (promptTokens && promptTokens > 0) {
+          counts.push(promptTokens);
+        } else {
+          // SDK 没回填字段 — 退回经验公式
+          counts.push(_fallbackTokenCount(String(text)));
+        }
+      }
+      return json(res, 200, { counts, tokenizer: "qvac-sdk-llamacpp" });
+    } catch (err) {
+      bridgeLog(`tokenize error: ${err.message}`);
+      return json(res, 500, { error: err.message });
+    }
   }
 
   // ---- Embed Load ----
@@ -516,7 +570,21 @@ async function startBridge(opts = {}) {
   server = http.createServer(handleRequest);
   return new Promise((resolve, reject) => {
     server.listen(port, host, () => {
+      // R-01 离线合规审计 — 启动时强制输出绑定地址 + 校验回环
+      const isLoopback = host === "127.0.0.1" || host === "::1" || host === "localhost";
+      const auditLine = JSON.stringify({
+        event: "bridge_bind_audit",
+        bind_host: host,
+        bind_port: port,
+        loopback_only: isLoopback,
+        compliance: isLoopback ? "R-01_pass" : "R-01_VIOLATION",
+        ts: new Date().toISOString(),
+      });
+      bridgeLog(`AUDIT ${auditLine}`);
       process.stderr.write(`[Bridge] QVAC Bridge Service (embedded) on ${host}:${port}\n`);
+      if (!isLoopback) {
+        process.stderr.write(`[Bridge][WARN] bind_host=${host} 非回环地址，违反 R-01 合规！\n`);
+      }
       resolve({ port, host });
     });
     server.on("error", reject);
